@@ -14,50 +14,40 @@ from IPython.display import display, HTML
 import concurrent.futures
 import warnings
 
-
-
-
 def calculate_performance_metrics(history_df):
-    # 1. Daily Returns using Modified Dietz method
     history_df['Prev_Equity'] = history_df['Total_Equity'].shift(1)
     
-    # Modified Dietz approximation - better for cash flows
     history_df['Daily_Return'] = (
         (history_df['Total_Equity'] - history_df['Prev_Equity'] - history_df['Net_Flow']) / 
         (history_df['Prev_Equity'] + 0.5 * history_df['Net_Flow'])
     )
     history_df['Daily_Return'] = history_df['Daily_Return'].fillna(0)
     
-    # Calculate dollar returns for more accurate metrics
     history_df['Daily_PnL'] = history_df['Total_Equity'] - history_df['Prev_Equity'] - history_df['Net_Flow']
     
-    # 2. Cumulative Returns
+    # Cumulative Returns
     history_df['Cumulative_Return'] = (1 + history_df['Daily_Return']).cumprod() - 1
     history_df['PnL'] = history_df['Total_Equity'] - history_df['Invested_Capital']
     total_cum_return = history_df['Cumulative_Return'].iloc[-1]
     max_return = max(history_df['PnL'])
-    
-    # display(history_df.tail())
 
-    # 3. Risk-Free Rate
+    # Risk-Free Rate
     try:
         irx_ticker = yf.Ticker("^IRX")
         start_date_str = history_df.index.min().strftime('%Y-%m-%d')
         irx_hist = irx_ticker.history(start=start_date_str)['Close']
         irx_hist.index = irx_hist.index.tz_localize(None)
         
-        # Align with portfolio history and convert to decimal
         history_df['Risk_Free_Rate_Annual'] = irx_hist / 100  # Convert percentage to decimal
         history_df['Risk_Free_Rate_Annual'] = history_df['Risk_Free_Rate_Annual'].ffill().fillna(0.04)
         
-        # Use 365 for calendar days (risk-free accrues every day)
         history_df['Risk_Free_Rate_Daily'] = (1 + history_df['Risk_Free_Rate_Annual']) ** (1/365) - 1
         
     except Exception as e:
         print(f"Error fetching Risk Free Rate: {e}")
         history_df['Risk_Free_Rate_Daily'] = (1.04 ** (1/365)) - 1  # 4% annual, daily compounded
     
-    # 4. Benchmark (SPY) & Beta
+    # Benchmark (SPY) & Beta
     try:
         spy_ticker = yf.Ticker("SPY")
         start_date_str = history_df.index.min().strftime('%Y-%m-%d')
@@ -65,28 +55,22 @@ def calculate_performance_metrics(history_df):
         spy_hist.index = spy_hist.index.tz_localize(None)
         spy_returns = spy_hist.pct_change().fillna(0)
         
-        # Align data properly
         aligned_data = pd.DataFrame({
             'Portfolio': history_df['Daily_Return'],
             'SPY': spy_returns,
             'Risk_Free_Rate': history_df['Risk_Free_Rate_Daily']
         }, index=history_df.index).dropna()
         
-        # Ensure we have enough data points
         if len(aligned_data) > 10:
-            # More robust beta calculation using regression
             beta, alpha, r_value, p_value, std_err = stats.linregress(
                 aligned_data['SPY'], aligned_data['Portfolio']
             )
             portfolio_beta = beta
             
-            # CORRECT Benchmark Return (Geometric)
             benchmark_total_return = (1 + aligned_data['SPY']).prod() - 1
             
-            # CORRECT Tracking Error (annualized)
             tracking_error = (aligned_data['Portfolio'] - aligned_data['SPY']).std() * np.sqrt(252)
             
-            # CORRECT Down Capture Ratio
             down_market = aligned_data[aligned_data['SPY'] < 0]
             if len(down_market) > 5:  # Need enough down days
                 portfolio_down_return = (1 + down_market['Portfolio']).prod() - 1
@@ -95,7 +79,6 @@ def calculate_performance_metrics(history_df):
             else:
                 down_capture = np.nan
 
-            # Calculate Up Capture for completeness
             up_market = aligned_data[aligned_data['SPY'] > 0]
             if len(up_market) > 5:
                 portfolio_up_return = (1 + up_market['Portfolio']).prod() - 1
@@ -131,7 +114,7 @@ def calculate_performance_metrics(history_df):
         down_capture = np.nan
         up_capture = np.nan
     
-    # 5. Sharpe, Sortino, Alpha, Volatility, VaR
+    # Sharpe, Sortino, Alpha, Volatility, VaR
     
     # Sharpe Ratio
     excess_returns = history_df['Daily_Return'] - history_df['Risk_Free_Rate_Daily']
@@ -149,7 +132,7 @@ def calculate_performance_metrics(history_df):
     
 
 
-    # Alpha (using geometric returns)
+    # Alpha
     if not np.isnan(portfolio_beta) and 'aligned_data' in locals() and len(aligned_data) > 10:
         # Geometric returns
         port_total_return = (1 + history_df['Daily_Return']).prod() - 1
@@ -166,17 +149,14 @@ def calculate_performance_metrics(history_df):
     else:
         alpha = np.nan
     
-    # Volatility (Annualized)
+    # Volatility 
     volatility = history_df['Daily_Return'].std() * np.sqrt(252) if len(history_df) > 1 else 0
     
-    # VaR (95%, 1-day) - Use dollar PnL for more accuracy
+    # VaR (95%, 1-day) 
     if len(history_df) > 10:
         var_95_percent_return = np.percentile(history_df['Daily_Return'], 5)
         var_95_dollar = np.percentile(history_df['Daily_PnL'], 5)
         current_equity = history_df['Total_Equity'].iloc[-1]
-    # else:
-    #     var_95_percent_return = np.nan
-    #     var_95_dollar = np.nan
     
     # Total Return and Max Drawdown
     if len(history_df) > 0:
@@ -212,7 +192,6 @@ def calculate_performance_metrics(history_df):
     }
 
 def get_pnl_plot(history_df, show = False):
-    # Interactive Total PnL with Plotly
     fig_pnl = go.Figure()
 
     # Add PnL line
@@ -249,7 +228,7 @@ def get_pnl_plot(history_df, show = False):
         xaxis_title='Date',
         yaxis_title='PnL (USD)',
         hovermode='x unified',
-        width=1400,  # Make the graph longer/wider
+        width=1400,  
         height=500
     )
 
@@ -292,8 +271,8 @@ def get_returns_plot(history_df, show = False):
     return fig_return
 
 def get_allocation(history_df, trades_df, portfolio_tracker, show=False):
-
     last_holdings = {}
+
     for sym in portfolio_tracker.symbols:
         buys = trades_df[(trades_df['SYMBOL'] == sym) & (trades_df['BUY/SELL'] == 'BUY')]['QTY'].sum()
         sells = trades_df[(trades_df['SYMBOL'] == sym) & (trades_df['BUY/SELL'] == 'SELL')]['QTY'].sum()
@@ -312,9 +291,7 @@ def get_allocation(history_df, trades_df, portfolio_tracker, show=False):
     if current_cash > 0:
         current_values['CASH'] = current_cash
 
-    # ==========================================
-    # 2. Categorize Assets
-    # ==========================================
+    # Categorize Assets
     asset_categories = {}
     asset_sectors = {}
 
@@ -334,13 +311,11 @@ def get_allocation(history_df, trades_df, portfolio_tracker, show=False):
             asset_sectors[sym] = 'US Broad Market'
             continue
 
-        # Automated category and sector        
         info = portfolio_tracker.asset_info.get(sym, {})
         quote_type = info.get('quoteType', 'UNKNOWN')
         sector = info.get('sector', 'Unknown')
         long_name = info.get('longName', '').lower()
         
-        # Custom Logic
         if quote_type == 'ETF':
             if sym in US_BROAD_MARKET:
                 category = 'US Broad Market'
@@ -373,16 +348,14 @@ def get_allocation(history_df, trades_df, portfolio_tracker, show=False):
         cat = asset_categories.get(sym, 'Other')
         category_values[cat] = category_values.get(cat, 0) + val
 
-    # Group by Sector (for Equities mostly)
+    # Group by Sector 
     sector_values = {}
     for sym, val in current_values.items():
         sec = asset_sectors.get(sym, 'Other')
         sector_values[sec] = sector_values.get(sec, 0) + val
         
-    # ==========================================
-    # 3. Create & Format Allocation DataFrame
-    # ==========================================
-    # Convert dictionary to List of Dicts for easy DataFrame creation
+
+    # Create & Format Allocation DataFrame
     data_rows = []
     total_portfolio_value = sum(current_values.values())
 
@@ -395,17 +368,10 @@ def get_allocation(history_df, trades_df, portfolio_tracker, show=False):
             'Allocation (%)': (val / total_portfolio_value) * 100
         })
 
-    # Create DataFrame
     df_allocation = pd.DataFrame(data_rows)
-
-    # Sort by Value (Highest first)
     df_allocation = df_allocation.sort_values(by='Value', ascending=False).reset_index(drop=True)
 
-    # ==========================================
-    # 4. Visualization (Pie Charts)
-    # ==========================================
-
-    # Group data for charts using the DataFrame
+    # Visualization (Pie Charts)
     df_by_category = df_allocation.groupby('Category')['Value'].sum().reset_index()
 
     fig_alloc = make_subplots(
@@ -437,10 +403,7 @@ def get_allocation(history_df, trades_df, portfolio_tracker, show=False):
                     height=550,
                     showlegend=False)
 
-    # ==========================================
-    # 5. Display DataFrame
-    # ==========================================
-    # Formatting for display (Add currency symbol and round percentages)
+    # Display DataFrame
     df_alloc = df_allocation.copy()
     df_alloc['Value'] = df_alloc['Value'].apply(lambda x: f"${x:,.2f}")
     df_alloc['Allocation (%)'] = df_alloc['Allocation (%)'].apply(lambda x: f"{x:.2f}%")
@@ -451,27 +414,22 @@ def get_allocation(history_df, trades_df, portfolio_tracker, show=False):
     return fig_alloc, df_alloc, category_values, sector_values, current_values, current_holdings
 
 def get_summary_sheet(history_df, category_values, sector_values, current_values, current_holdings):
-
-    # COMPREHENSIVE SUMMARY DASHBOARD (HTML)
-
     # Fetch HKD Rate
     try:
         hkd_ticker = yf.Ticker("HKD=X")
         hkd_rate = hkd_ticker.history(period="1d")['Close'].iloc[-1]
     except Exception as e:
         print(f"Error fetching HKD rate: {e}")
-        hkd_rate = 7.78  # Fallback
+        hkd_rate = 7.78  
 
     current_equity = history_df['Total_Equity'].iloc[-1]
     current_market_value = history_df['Market_Value'].iloc[-1]
     current_cash = history_df['Cash'].iloc[-1]
     total_return_abs = history_df['PnL'].iloc[-1]
 
-    # Ensure metrics are available
     if 'metrics' not in locals():
         metrics = calculate_performance_metrics(history_df)
 
-    # Extract all metrics with safe defaults
     first_date = metrics.get('first_date', 0)
     total_return = metrics.get('total_return', 0)
     total_cum_return = metrics.get('total_cum_return', 0)
@@ -490,13 +448,10 @@ def get_summary_sheet(history_df, category_values, sector_values, current_values
     var_95_percent_return = metrics.get('var_95_percent_return',0)
     down_capture = metrics.get('down_capture', 0)
     up_capture = metrics.get('up_capture', 0)
-
-    # Composition Metrics - FIXED: Use variables that actually exist in your environment
-    # If these aren't defined, you'll need to calculate them from your current portfolio data
+    
     try:
-        total_val = current_equity  # Using total equity as total portfolio value
+        total_val = current_equity  
         
-        # If you have category_values, sector_values, current_values, current_holdings defined:
         if 'category_values' in locals() and category_values:
             asset_alloc_str = " | ".join([f"{k} {v/total_val:.1%}" for k, v in category_values.items()])
         else:
@@ -524,7 +479,7 @@ def get_summary_sheet(history_df, category_values, sector_values, current_values
         top_10_pct = 0
         num_holdings = 0
 
-    # Styling Helpers
+    # Styling 
     def color_val(val, is_pct=False, reverse=False, show_hkd=True):
         try:
             if is_pct:
@@ -547,23 +502,7 @@ def get_summary_sheet(history_df, category_values, sector_values, current_values
                 return f'<span style="color: {color}; font-weight: bold;">{fmt}</span>'
         except:
             return f'<span style="color: #666; font-weight: bold;">N/A</span>'
-    # def color_val(val, is_pct=False, reverse=False):
-    #     try:
-    #         if is_pct:
-    #             color = "green" if val >= 0 else "red"
-    #             if reverse:
-    #                 color = "red" if val >= 0 else "green"
-    #             fmt = f"{val:.2%}"
-    #         else:
-    #             color = "green" if val >= 0 else "red"
-    #             if reverse:
-    #                 color = "red" if val >= 0 else "green"
-    #             fmt = f"US$ {val:,.2f}"
-    #         return f'<span style="color: {color}; font-weight: bold;">{fmt}</span>'
-    #     except:
-    #         return f'<span style="color: #666; font-weight: bold;">N/A</span>'
 
-    # HTML Template (High Contrast + Definitions)
     summary_sheet = f"""
     <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 1000px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden; background-color: #ffffff;">
         <div style="padding: 20px; border-bottom: 1px solid #e0e0e0; display: flex; justify-content: space-between; align-items: center; background-color: #ffffff;">

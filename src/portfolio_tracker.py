@@ -29,24 +29,21 @@ class PortfolioTracker:
     def fetch_market_data(self):
         print(f"Fetching data for: {self.symbols}")
 
-        # Define the worker function that handles ONE symbol
         def process_symbol(symbol):
             try:
                 ticker = yf.Ticker(symbol)
                 start_str = (self.start_date - timedelta(days=5)).strftime('%Y-%m-%d')
                 
-                # --- 1. DAILY DATA ---
+                # --- DAILY DATA ---
                 file_name = f'{symbol}.csv'
                 daily_path = os.path.join(config.DAILY_DATA_DIR, file_name)
                 existing_data = pd.DataFrame()
                 
-                # Load existing
                 if os.path.exists(daily_path):
                     try:
                         existing_data = pd.read_csv(daily_path, index_col=0, parse_dates=True)
                     except Exception: pass
                 
-                # Fetch new
                 new_hist = ticker.history(start=start_str, auto_adjust=False)
                 
                 if not new_hist.empty:
@@ -65,22 +62,19 @@ class PortfolioTracker:
                 else:
                     self.market_data[symbol] = pd.DataFrame()
 
-                # --- 2. DIVIDENDS & SPLITS ---
-                # These are fast operations
+                # --- DIVIDENDS & SPLITS ---
                 divs = ticker.dividends
                 splits = ticker.splits
                 self.dividends[symbol] = divs.tz_localize(None) if divs.index.tz is not None else divs
                 self.splits[symbol] = splits.tz_localize(None) if splits.index.tz is not None else splits
                 
-                # --- 3. ASSET INFO (OPTIMIZED) ---
+                # --- ASSET INFO ---
                 try:
-                    # We only need this once, but yfinance info can be slow. 
-                    # For now, we fetch it. In a prod app, we'd cache this.
                     self.asset_info[symbol] = ticker.info
                 except Exception:
                     self.asset_info[symbol] = {}
 
-                # --- 4. MINUTE DATA ---
+                # --- MINUTE DATA ---
                 minute_path = os.path.join(config.MINUTE_DATA_DIR, file_name)
                 existing_min = pd.DataFrame()
                 if os.path.exists(minute_path):
@@ -102,14 +96,10 @@ class PortfolioTracker:
             except Exception as e:
                 print(f"Error processing {symbol}: {e}")
 
-        # --- THE OPTIMIZATION ---
-        # Run process_symbol for all symbols in parallel
-        # max_workers=20 allows up to 20 parallel network requests
         with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
             executor.map(process_symbol, self.symbols)
             
     def process_portfolio(self):
-        # Create a date range from start to today
         date_range = pd.date_range(start=self.start_date, end=self.end_date, freq='D')
         
         # Initialize tracking variables
@@ -122,9 +112,9 @@ class PortfolioTracker:
         
         # Iterate through each day
         for current_date in date_range:
-            daily_net_flow = 0.0 # Track deposits/withdrawals for this day
+            daily_net_flow = 0.0 
             
-            # 1. Process trades for this day
+            # Process trades for this day
             day_trades = self.trades[self.trades['DATE'] == current_date]
             for _, trade in day_trades.iterrows():
                 symbol = trade['SYMBOL']
@@ -146,12 +136,12 @@ class PortfolioTracker:
                     if type_ == 'BUY':
                         holdings[symbol] += qty
                         cash -= amt
-                        # Transaction cost could be added here if in CSV
+                        # Transaction cost can be added here
                     elif type_ == 'SELL':
                         holdings[symbol] -= qty
                         cash += amt
             
-            # 2. Process Dividends & Splits
+            # Process Dividends & Splits
             daily_value = 0.0
             current_asset_values = {} # Store value per asset for weight calc
             
@@ -164,7 +154,6 @@ class PortfolioTracker:
                 
                 # Get price
                 try:
-                    # lookup price at current_date or previous close
                     idx = df.index.get_indexer([current_date], method='pad')[0]
                     if idx == -1:
                         price = 0 # Before data start
@@ -180,7 +169,7 @@ class PortfolioTracker:
                     if current_date in self.dividends[symbol].index:
                         div_amt = self.dividends[symbol].loc[current_date]
                         # Check if treasury (simple check for now, can be expanded)
-                        is_treasury = symbol in ['SHV', 'SGOV', 'BIL'] # Add more if needed
+                        is_treasury = symbol in config.NO_DIVIDEND_TAX 
                         tax_rate = 0.0 if is_treasury else 0.30
                         net_div = div_amt * (1 - tax_rate)
                         total_div = holdings[symbol] * net_div
@@ -200,15 +189,11 @@ class PortfolioTracker:
                 except Exception as e:
                     price = 0
                 
-                # daily_value += holdings[symbol] * price
-            
             total_equity = daily_value + cash
 
-            # --- 3. Record Weights ---
-            # Avoid division by zero
+            # --- Record Weights ---
             if total_equity > 0:
                 daily_weights = {k: v / total_equity for k, v in current_asset_values.items()}
-                # daily_weights['CASH'] = cash / total_equity # Optional: Track cash drag
             else:
                 daily_weights = {k: 0 for k in current_asset_values}
             
@@ -223,8 +208,6 @@ class PortfolioTracker:
                 'Invested_Capital': invested_capital,
                 'Net_Flow': daily_net_flow
             })
-        
-
 
         # Convert to DataFrame
         self.df_portfolio = pd.DataFrame(portfolio_history).set_index('Date')
@@ -253,7 +236,6 @@ class PortfolioTracker:
         else:
             sym_list = self.symbols
 
-        # Get returns for all symbols
         returns_data = {}
         
         for symbol in sym_list:
@@ -277,7 +259,7 @@ class PortfolioTracker:
                     
                     # Calculate daily returns
                     returns = prices.pct_change().dropna()
-                    if len(returns) > 10:  # Ensure we have enough data
+                    if len(returns) > 10: 
                         returns_data[symbol] = returns
                         
                 except Exception as e:

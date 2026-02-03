@@ -16,9 +16,9 @@ def create_report(fig_pnl, fig_return, fig_alloc, summary_sheet, df_alloc, outpu
     pnl_html = fig_pnl.to_html(
         full_html=False, 
         include_plotlyjs='cdn',
-        default_width='100%',  # Ensures 100% width on load
-        default_height='500px', # Set a consistent height
-        config=plotly_config    # Enables Javascript resizing
+        default_width='100%',  
+        default_height='500px', 
+        config=plotly_config    
     )
     
     alloc_html = fig_alloc.to_html(
@@ -42,7 +42,6 @@ def create_report(fig_pnl, fig_return, fig_alloc, summary_sheet, df_alloc, outpu
         summary_content = str(summary_sheet)
     
     # Create interactive table HTML with DataTables
-    # First, create the table HTML with an ID
     table_html = df_alloc.to_html(
         index=False, 
         classes='display compact stripe hover order-column row-border', 
@@ -375,6 +374,3 @@ def create_report(fig_pnl, fig_return, fig_alloc, summary_sheet, df_alloc, outpu
         f.write(html_template)
     
     return output_path
-
-# Use the function
-
