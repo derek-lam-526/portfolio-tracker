@@ -1,0 +1,712 @@
+import config
+
+import pandas as pd 
+import numpy as np 
+from scipy import stats
+import yfinance as yf 
+from datetime import datetime, timedelta, date
+import matplotlib.pyplot as plt
+import plotly.express as px
+import plotly.graph_objects as go
+import seaborn as sns
+from plotly.subplots import make_subplots
+from IPython.display import display, HTML
+import concurrent.futures
+import warnings
+
+
+
+
+def calculate_performance_metrics(history_df):
+    # 1. Daily Returns using Modified Dietz method
+    history_df['Prev_Equity'] = history_df['Total_Equity'].shift(1)
+    
+    # Modified Dietz approximation - better for cash flows
+    history_df['Daily_Return'] = (
+        (history_df['Total_Equity'] - history_df['Prev_Equity'] - history_df['Net_Flow']) / 
+        (history_df['Prev_Equity'] + 0.5 * history_df['Net_Flow'])
+    )
+    history_df['Daily_Return'] = history_df['Daily_Return'].fillna(0)
+    
+    # Calculate dollar returns for more accurate metrics
+    history_df['Daily_PnL'] = history_df['Total_Equity'] - history_df['Prev_Equity'] - history_df['Net_Flow']
+    
+    # 2. Cumulative Returns
+    history_df['Cumulative_Return'] = (1 + history_df['Daily_Return']).cumprod() - 1
+    history_df['PnL'] = history_df['Total_Equity'] - history_df['Invested_Capital']
+    total_cum_return = history_df['Cumulative_Return'].iloc[-1]
+    max_return = max(history_df['PnL'])
+    
+    # display(history_df.tail())
+
+    # 3. Risk-Free Rate
+    try:
+        irx_ticker = yf.Ticker("^IRX")
+        start_date_str = history_df.index.min().strftime('%Y-%m-%d')
+        irx_hist = irx_ticker.history(start=start_date_str)['Close']
+        irx_hist.index = irx_hist.index.tz_localize(None)
+        
+        # Align with portfolio history and convert to decimal
+        history_df['Risk_Free_Rate_Annual'] = irx_hist / 100  # Convert percentage to decimal
+        history_df['Risk_Free_Rate_Annual'] = history_df['Risk_Free_Rate_Annual'].ffill().fillna(0.04)
+        
+        # Use 365 for calendar days (risk-free accrues every day)
+        history_df['Risk_Free_Rate_Daily'] = (1 + history_df['Risk_Free_Rate_Annual']) ** (1/365) - 1
+        
+    except Exception as e:
+        print(f"Error fetching Risk Free Rate: {e}")
+        history_df['Risk_Free_Rate_Daily'] = (1.04 ** (1/365)) - 1  # 4% annual, daily compounded
+    
+    # 4. Benchmark (SPY) & Beta
+    try:
+        spy_ticker = yf.Ticker("SPY")
+        start_date_str = history_df.index.min().strftime('%Y-%m-%d')
+        spy_hist = spy_ticker.history(start=start_date_str)['Close']
+        spy_hist.index = spy_hist.index.tz_localize(None)
+        spy_returns = spy_hist.pct_change().fillna(0)
+        
+        # Align data properly
+        aligned_data = pd.DataFrame({
+            'Portfolio': history_df['Daily_Return'],
+            'SPY': spy_returns,
+            'Risk_Free_Rate': history_df['Risk_Free_Rate_Daily']
+        }, index=history_df.index).dropna()
+        
+        # Ensure we have enough data points
+        if len(aligned_data) > 10:
+            # More robust beta calculation using regression
+            beta, alpha, r_value, p_value, std_err = stats.linregress(
+                aligned_data['SPY'], aligned_data['Portfolio']
+            )
+            portfolio_beta = beta
+            
+            # CORRECT Benchmark Return (Geometric)
+            benchmark_total_return = (1 + aligned_data['SPY']).prod() - 1
+            
+            # CORRECT Tracking Error (annualized)
+            tracking_error = (aligned_data['Portfolio'] - aligned_data['SPY']).std() * np.sqrt(252)
+            
+            # CORRECT Down Capture Ratio
+            down_market = aligned_data[aligned_data['SPY'] < 0]
+            if len(down_market) > 5:  # Need enough down days
+                portfolio_down_return = (1 + down_market['Portfolio']).prod() - 1
+                benchmark_down_return = (1 + down_market['SPY']).prod() - 1
+                down_capture = portfolio_down_return / benchmark_down_return if benchmark_down_return != 0 else np.nan
+            else:
+                down_capture = np.nan
+
+            # Calculate Up Capture for completeness
+            up_market = aligned_data[aligned_data['SPY'] > 0]
+            if len(up_market) > 5:
+                portfolio_up_return = (1 + up_market['Portfolio']).prod() - 1
+                benchmark_up_return = (1 + up_market['SPY']).prod() - 1
+                up_capture = portfolio_up_return / benchmark_up_return if benchmark_up_return != 0 else np.nan
+            else:
+                up_capture = np.nan
+
+            excess_spy_returns = aligned_data['SPY'] - aligned_data['Risk_Free_Rate']
+            if len(history_df) > 1 and aligned_data['SPY'].std() > 0:
+                spy_sharpe_ratio = (excess_spy_returns.mean() * 252) / (aligned_data['SPY'].std() * np.sqrt(252))
+            else:
+                spy_sharpe_ratio = np.nan
+
+            downside_spy_returns = aligned_data['SPY'][aligned_data['SPY'] < aligned_data['Risk_Free_Rate']]
+            if len(downside_spy_returns) > 1 and downside_spy_returns.std() > 0:
+                spy_sortino_ratio = (excess_spy_returns.mean() * 252) / (downside_spy_returns.std() * np.sqrt(252))
+            else:
+                spy_sortino_ratio = np.nan
+                
+        else:
+            portfolio_beta = np.nan
+            benchmark_total_return = np.nan
+            tracking_error = np.nan
+            down_capture = np.nan
+            up_capture = np.nan
+            
+    except Exception as e:
+        print(f"Error calculating Benchmark/Beta: {e}")
+        portfolio_beta = np.nan
+        benchmark_total_return = np.nan
+        tracking_error = np.nan
+        down_capture = np.nan
+        up_capture = np.nan
+    
+    # 5. Sharpe, Sortino, Alpha, Volatility, VaR
+    
+    # Sharpe Ratio
+    excess_returns = history_df['Daily_Return'] - history_df['Risk_Free_Rate_Daily']
+    if len(history_df) > 1 and history_df['Daily_Return'].std() > 0:
+        sharpe_ratio = (excess_returns.mean() * 252) / (history_df['Daily_Return'].std() * np.sqrt(252))
+    else:
+        sharpe_ratio = np.nan
+
+    # Sortino Ratio
+    downside_returns = history_df['Daily_Return'][history_df['Daily_Return'] < history_df["Risk_Free_Rate_Daily"]] # Use risk free rate as minimum acceptable return (MAR)
+    if len(downside_returns) > 1 and downside_returns.std() > 0:
+        sortino_ratio = (excess_returns.mean() * 252) / (downside_returns.std() * np.sqrt(252))
+    else:
+        sortino_ratio = np.nan
+    
+
+
+    # Alpha (using geometric returns)
+    if not np.isnan(portfolio_beta) and 'aligned_data' in locals() and len(aligned_data) > 10:
+        # Geometric returns
+        port_total_return = (1 + history_df['Daily_Return']).prod() - 1
+        spy_total_return = (1 + aligned_data['SPY']).prod() - 1
+        rf_total_return = (1 + history_df['Risk_Free_Rate_Daily']).prod() - 1
+        
+        # Annualize
+        n_days = len(history_df)
+        port_return_annual = (1 + port_total_return) ** (252/n_days) - 1
+        spy_return_annual = (1 + spy_total_return) ** (252/n_days) - 1
+        rf_annual = (1 + rf_total_return) ** (252/n_days) - 1
+        
+        alpha = port_return_annual - (rf_annual + portfolio_beta * (spy_return_annual - rf_annual))
+    else:
+        alpha = np.nan
+    
+    # Volatility (Annualized)
+    volatility = history_df['Daily_Return'].std() * np.sqrt(252) if len(history_df) > 1 else 0
+    
+    # VaR (95%, 1-day) - Use dollar PnL for more accuracy
+    if len(history_df) > 10:
+        var_95_percent_return = np.percentile(history_df['Daily_Return'], 5)
+        var_95_dollar = np.percentile(history_df['Daily_PnL'], 5)
+        current_equity = history_df['Total_Equity'].iloc[-1]
+    # else:
+    #     var_95_percent_return = np.nan
+    #     var_95_dollar = np.nan
+    
+    # Total Return and Max Drawdown
+    if len(history_df) > 0:
+        total_return = (history_df['Total_Equity'].iloc[-1] / history_df['Invested_Capital'].iloc[-1]) - 1
+        rolling_max = history_df['Total_Equity'].cummax()
+        drawdowns = (history_df['Total_Equity'] / rolling_max - 1)
+        max_drawdown = drawdowns.min()
+    else:
+        total_return = 0
+        max_drawdown = 0
+    
+    first_date = history_df.index[0]
+
+    return {
+        'first_date': first_date,
+        'sharpe_ratio': sharpe_ratio,
+        'benchmark_sharpe_ratio': spy_sharpe_ratio,
+        'sortino_ratio': sortino_ratio,
+        'benchmark_sortino_ratio': spy_sortino_ratio,
+        'portfolio_beta': portfolio_beta,
+        'alpha': alpha,
+        'volatility': volatility,
+        'var_95_percent_return': var_95_percent_return,
+        'var_95_dollar': var_95_dollar,
+        'total_return': total_return,
+        'max_return': max_return,
+        'total_cum_return': total_cum_return,
+        'max_drawdown': max_drawdown,
+        'benchmark_return': benchmark_total_return if 'benchmark_total_return' in locals() else np.nan,
+        'tracking_error': tracking_error if 'tracking_error' in locals() else np.nan,
+        'down_capture': down_capture if 'down_capture' in locals() else np.nan,
+        'up_capture': up_capture if 'up_capture' in locals() else np.nan
+    }
+
+def get_pnl_plot(history_df, show = False):
+    # Interactive Total PnL with Plotly
+    fig_pnl = go.Figure()
+
+    # Add PnL line
+    fig_pnl.add_trace(go.Scatter(
+        x=history_df.index,
+        y=history_df['PnL'],
+        mode='lines',
+        name='Total PnL',
+        line=dict(color='black', width=1)
+    ))
+
+    # Add Green fill for Profit
+    fig_pnl.add_trace(go.Scatter(
+        x=history_df.index,
+        y=history_df['PnL'].where(history_df['PnL'] >= 0, 0),
+        mode='none',
+        fill='tozeroy',
+        fillcolor='rgba(0, 255, 0, 0.3)',
+        name='Profit'
+    ))
+
+    # Add Red fill for Loss
+    fig_pnl.add_trace(go.Scatter(
+        x=history_df.index,
+        y=history_df['PnL'].where(history_df['PnL'] < 0, 0),
+        mode='none',
+        fill='tozeroy',
+        fillcolor='rgba(255, 0, 0, 0.3)',
+        name='Loss'
+    ))
+
+    fig_pnl.update_layout(
+        title='Interactive Total Profit/Loss Over Time',
+        xaxis_title='Date',
+        yaxis_title='PnL (USD)',
+        hovermode='x unified',
+        width=1400,  # Make the graph longer/wider
+        height=500
+    )
+
+    # Hide weekends on x-axis
+    fig_pnl.update_xaxes(
+        rangebreaks=[
+            dict(bounds=["sat", "mon"]) # hide weekends
+        ]
+    )
+    
+    if show:
+        fig_pnl.show()
+    
+    return fig_pnl
+    
+def get_returns_plot(history_df, show = False):
+    dpi=config.MPL_DPI
+    fig_return, (ax1, ax2) = plt.subplots(2, 1, figsize=(1400/dpi, 500/dpi), dpi=dpi)
+
+    # Daily Returns
+    ax1.plot(history_df.index, history_df['Daily_Return'] * 100, label='Daily Return %', color='purple', linewidth=1)
+    ax1.axhline(0, color='black', linestyle='-', linewidth=0.5)
+    ax1.set_title('Daily Return % (Adjusted)')
+    ax1.set_ylabel('Return (%)')
+    ax1.grid(True, alpha=0.3)
+
+    # Total Cumulative Return
+    ax2.plot(history_df.index, history_df['Cumulative_Return'] * 100, label='Total Return %', color='teal')
+    ax2.axhline(0, color='black', linestyle='-', linewidth=0.5)
+    ax2.fill_between(history_df.index, history_df['Cumulative_Return'] * 100, 0, alpha=0.2, color='teal')
+    ax2.set_title('Total Cumulative Return %')
+    ax2.set_ylabel('Return (%)')
+    ax2.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    
+    if show:
+        plt.show()
+    
+    return fig_return
+
+def get_allocation(history_df, trades_df, portfolio_tracker, show=False):
+
+    last_holdings = {}
+    for sym in portfolio_tracker.symbols:
+        buys = trades_df[(trades_df['SYMBOL'] == sym) & (trades_df['BUY/SELL'] == 'BUY')]['QTY'].sum()
+        sells = trades_df[(trades_df['SYMBOL'] == sym) & (trades_df['BUY/SELL'] == 'SELL')]['QTY'].sum()
+        last_holdings[sym] = buys - sells
+
+    current_holdings = {k: v for k, v in last_holdings.items() if v > 0}
+    current_values = {}
+
+    for sym, qty in current_holdings.items():
+        if sym in portfolio_tracker.market_data and not portfolio_tracker.market_data[sym].empty:
+            price = portfolio_tracker.market_data[sym].iloc[-1]['Close']
+            current_values[sym] = qty * price
+
+    # Add Cash
+    current_cash = history_df['Cash'].iloc[-1]
+    if current_cash > 0:
+        current_values['CASH'] = current_cash
+
+    # ==========================================
+    # 2. Categorize Assets
+    # ==========================================
+    asset_categories = {}
+    asset_sectors = {}
+
+    # Split Broad Market into US and International
+    US_BROAD_MARKET = ['VOO', 'VTI', 'SPY', 'IVV', 'QQQ', 'IWM', 'QQQM', 'SPYM']
+    INTL_EQUITY = ['VEU', 'VXUS', 'EFA']
+
+    for sym in current_values.keys():
+        if sym == 'CASH':
+            asset_categories[sym] = 'Cash & Equivalents'
+            asset_sectors[sym] = 'Cash'
+            continue
+
+        # Manual fix wrong category and sector
+        if sym == 'SPYM':
+            asset_categories[sym] = 'US Broad Market'
+            asset_sectors[sym] = 'US Broad Market'
+            continue
+
+        # Automated category and sector        
+        info = portfolio_tracker.asset_info.get(sym, {})
+        quote_type = info.get('quoteType', 'UNKNOWN')
+        sector = info.get('sector', 'Unknown')
+        long_name = info.get('longName', '').lower()
+        
+        # Custom Logic
+        if quote_type == 'ETF':
+            if sym in US_BROAD_MARKET:
+                category = 'US Broad Market'
+            elif sym in INTL_EQUITY:
+                category = 'International Equity'
+            elif any(x in long_name for x in ['treasury', 'gov', 'bills', 'sovereign']):
+                category = 'Treasury Bonds'
+            elif any(x in long_name for x in ['corporate', 'credit', 'high yield']):
+                category = 'Corporate Bonds'
+            elif any(x in long_name for x in ['bond', 'fixed income']):
+                category = 'Other Fixed Income'
+            elif any(x in long_name for x in ['gold', 'silver', 'commodity', 'metal']):
+                category = 'Commodities'
+            else:
+                category = 'Equity ETF (Other)'
+        elif quote_type == 'EQUITY':
+            if sector != 'Unknown':
+                category = f"{sector} Stocks"
+            else:
+                category = 'Individual Stocks'
+        else:
+            category = 'Other'
+            
+        asset_categories[sym] = category
+        asset_sectors[sym] = sector if sector != 'Unknown' else category
+
+    # Group by Category
+    category_values = {}
+    for sym, val in current_values.items():
+        cat = asset_categories.get(sym, 'Other')
+        category_values[cat] = category_values.get(cat, 0) + val
+
+    # Group by Sector (for Equities mostly)
+    sector_values = {}
+    for sym, val in current_values.items():
+        sec = asset_sectors.get(sym, 'Other')
+        sector_values[sec] = sector_values.get(sec, 0) + val
+        
+    # ==========================================
+    # 3. Create & Format Allocation DataFrame
+    # ==========================================
+    # Convert dictionary to List of Dicts for easy DataFrame creation
+    data_rows = []
+    total_portfolio_value = sum(current_values.values())
+
+    for sym, val in current_values.items():
+        data_rows.append({
+            'Symbol': sym,
+            'Category': asset_categories.get(sym, 'Other'),
+            'Sector': asset_sectors.get(sym, 'Other'),
+            'Value': val,
+            'Allocation (%)': (val / total_portfolio_value) * 100
+        })
+
+    # Create DataFrame
+    df_allocation = pd.DataFrame(data_rows)
+
+    # Sort by Value (Highest first)
+    df_allocation = df_allocation.sort_values(by='Value', ascending=False).reset_index(drop=True)
+
+    # ==========================================
+    # 4. Visualization (Pie Charts)
+    # ==========================================
+
+    # Group data for charts using the DataFrame
+    df_by_category = df_allocation.groupby('Category')['Value'].sum().reset_index()
+
+    fig_alloc = make_subplots(
+        rows=1, cols=2, 
+        specs=[[{'type':'domain'}, {'type':'domain'}]],
+        subplot_titles=['Allocation by Symbol', 'Allocation by Asset Class'],
+    )
+
+    # Pie 1: By Symbol
+    fig_alloc.add_trace(go.Pie(
+        labels=df_allocation['Symbol'], 
+        values=df_allocation['Value'], 
+        name="Symbol",
+        textinfo='label+percent',
+        hoverinfo='label+value+percent'
+    ), 1, 1)
+
+    # Pie 2: By Asset Class
+    fig_alloc.add_trace(go.Pie(
+        labels=df_by_category['Category'], 
+        values=df_by_category['Value'], 
+        name="Asset Class",
+        textinfo='label+percent',
+        hoverinfo='label+value+percent'
+    ), 1, 2)
+
+    fig_alloc.update_layout(title_text=f"Portfolio Allocation (Total: ${total_portfolio_value:,.2f})", 
+                    width=1200,
+                    height=550,
+                    showlegend=False)
+
+    # ==========================================
+    # 5. Display DataFrame
+    # ==========================================
+    # Formatting for display (Add currency symbol and round percentages)
+    df_alloc = df_allocation.copy()
+    df_alloc['Value'] = df_alloc['Value'].apply(lambda x: f"${x:,.2f}")
+    df_alloc['Allocation (%)'] = df_alloc['Allocation (%)'].apply(lambda x: f"{x:.2f}%")
+
+    if show:
+        fig_alloc.show()
+
+    return fig_alloc, df_alloc, category_values, sector_values, current_values, current_holdings
+
+def get_summary_sheet(history_df, category_values, sector_values, current_values, current_holdings):
+
+    # COMPREHENSIVE SUMMARY DASHBOARD (HTML)
+
+    # Fetch HKD Rate
+    try:
+        hkd_ticker = yf.Ticker("HKD=X")
+        hkd_rate = hkd_ticker.history(period="1d")['Close'].iloc[-1]
+    except Exception as e:
+        print(f"Error fetching HKD rate: {e}")
+        hkd_rate = 7.78  # Fallback
+
+    current_equity = history_df['Total_Equity'].iloc[-1]
+    current_market_value = history_df['Market_Value'].iloc[-1]
+    current_cash = history_df['Cash'].iloc[-1]
+    total_return_abs = history_df['PnL'].iloc[-1]
+
+    # Ensure metrics are available
+    if 'metrics' not in locals():
+        metrics = calculate_performance_metrics(history_df)
+
+    # Extract all metrics with safe defaults
+    first_date = metrics.get('first_date', 0)
+    total_return = metrics.get('total_return', 0)
+    total_cum_return = metrics.get('total_cum_return', 0)
+    max_return = metrics.get('max_return', 0)
+    benchmark_total_return = metrics.get('benchmark_return', 0)
+    alpha = metrics.get('alpha', 0)
+    volatility = metrics.get('volatility', 0)
+    sharpe_ratio = metrics.get('sharpe_ratio', 0)
+    benchmark_sharpe_ratio = metrics.get('benchmark_sharpe_ratio', 0)
+    sortino_ratio = metrics.get('sortino_ratio', 0)
+    benchmark_sortino_ratio = metrics.get('benchmark_sortino_ratio', 0)
+    portfolio_beta = metrics.get('portfolio_beta', 0)
+    tracking_error = metrics.get('tracking_error', 0)
+    max_drawdown = metrics.get('max_drawdown', 0)
+    var_95_dollar = metrics.get('var_95_dollar', 0)
+    var_95_percent_return = metrics.get('var_95_percent_return',0)
+    down_capture = metrics.get('down_capture', 0)
+    up_capture = metrics.get('up_capture', 0)
+
+    # Composition Metrics - FIXED: Use variables that actually exist in your environment
+    # If these aren't defined, you'll need to calculate them from your current portfolio data
+    try:
+        total_val = current_equity  # Using total equity as total portfolio value
+        
+        # If you have category_values, sector_values, current_values, current_holdings defined:
+        if 'category_values' in locals() and category_values:
+            asset_alloc_str = " | ".join([f"{k} {v/total_val:.1%}" for k, v in category_values.items()])
+        else:
+            asset_alloc_str = "Not Available"
+        
+        if 'sector_values' in locals() and sector_values:
+            sorted_sectors = sorted(sector_values.items(), key=lambda x: x[1], reverse=True)[:3]
+            sector_alloc_str = " | ".join([f"{k} {v/total_val:.1%}" for k, v in sorted_sectors])
+        else:
+            sector_alloc_str = "Not Available"
+        
+        if 'current_values' in locals() and current_values:
+            sorted_holdings = sorted(current_values.items(), key=lambda x: x[1], reverse=True)
+            top_10_val = sum([x[1] for x in sorted_holdings[:10]])
+            top_10_pct = top_10_val / total_val
+            num_holdings = len(current_holdings) if 'current_holdings' in locals() else len(current_values)
+        else:
+            top_10_pct = 0
+            num_holdings = 0
+        
+    except Exception as e:
+        print(f"Error in composition metrics: {e}")
+        asset_alloc_str = "Error"
+        sector_alloc_str = "Error"
+        top_10_pct = 0
+        num_holdings = 0
+
+    # Styling Helpers
+    def color_val(val, is_pct=False, reverse=False, show_hkd=True):
+        try:
+            if is_pct:
+                color = "green" if val >= 0 else "red"
+                if reverse:
+                    color = "red" if val >= 0 else "green"
+                fmt = f"{val:.2%}"
+                return f'<span style="color: {color}; font-weight: bold;">{fmt}</span>'
+            else:
+                color = "green" if val >= 0 else "red"
+                if reverse:
+                    color = "red" if val >= 0 else "green"
+                
+                if show_hkd:
+                    hkd_val = val * hkd_rate
+                    fmt = f"US$ {val:,.2f} <span style='font-size: 0.8em; color: #666; font-weight: normal;'>| HK$ {hkd_val:,.2f}</span>"
+                else:
+                    fmt = f"US$ {val:,.2f}"
+                    
+                return f'<span style="color: {color}; font-weight: bold;">{fmt}</span>'
+        except:
+            return f'<span style="color: #666; font-weight: bold;">N/A</span>'
+    # def color_val(val, is_pct=False, reverse=False):
+    #     try:
+    #         if is_pct:
+    #             color = "green" if val >= 0 else "red"
+    #             if reverse:
+    #                 color = "red" if val >= 0 else "green"
+    #             fmt = f"{val:.2%}"
+    #         else:
+    #             color = "green" if val >= 0 else "red"
+    #             if reverse:
+    #                 color = "red" if val >= 0 else "green"
+    #             fmt = f"US$ {val:,.2f}"
+    #         return f'<span style="color: {color}; font-weight: bold;">{fmt}</span>'
+    #     except:
+    #         return f'<span style="color: #666; font-weight: bold;">N/A</span>'
+
+    # HTML Template (High Contrast + Definitions)
+    summary_sheet = f"""
+    <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 1000px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden; background-color: #ffffff;">
+        <div style="padding: 20px; border-bottom: 1px solid #e0e0e0; display: flex; justify-content: space-between; align-items: center; background-color: #ffffff;">
+            <h2 style="margin: 0; color: #222;">PORTFOLIO SUMMARY</h2>
+            <div style="text-align: right; color: #444; font-size: 0.9em;">
+                <div>From {first_date.strftime('%Y-%m-%d')}</div>
+                <div>As of {datetime.now().strftime('%Y-%m-%d')}</div>
+                <div>USD/HKD: {hkd_rate:.4f}</div>
+            </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0; border-bottom: 1px solid #e0e0e0; background-color: #ffffff;">
+            <!-- VALUE & RETURN -->
+            <div style="padding: 20px; border-right: 1px solid #e0e0e0; background-color: #ffffff;">
+                <h3 style="margin-top: 0; color: #333; border-bottom: 2px solid #007bff; padding-bottom: 5px; display: inline-block;">VALUE & RETURN</h3>
+                <div style="margin-bottom: 10px;">
+                    <div style="font-size: 0.9em; color: #444; font-weight: 600;">Total Portfolio Value</div>
+                    <div style="font-size: 1.4em; font-weight: bold; color: #000;">US$ {current_equity:,.2f} <span style="font-size: 0.7em; color: #555; font-weight: normal;">| HK$ {current_equity*hkd_rate:,.2f}</span></div>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
+                    <div>
+                        <div style="font-size: 0.85em; color: #444; font-weight: 600;">Market Value</div>
+                        <div style="font-weight: 500; color: #222;">US$ {current_market_value:,.2f} <span style="font-size: 0.8em; color: #666;">| HK$ {current_market_value*hkd_rate:,.2f}</span></div>
+
+                    </div>
+                    <div>
+                        <div style="font-size: 0.85em; color: #444; font-weight: 600;">Cash</div>
+                        <div style="font-weight: 500; color: #222;">US$ {current_cash:,.2f} <span style="font-size: 0.8em; color: #666;">| HK$ {current_cash*hkd_rate:,.2f}</span></div>
+                    </div>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
+                    <div>
+                        <div style="font-size: 0.85em; color: #444; font-weight: 600;">Total Return ($)</div>
+                        <div>{color_val(total_return_abs, show_hkd=True)}</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 0.85em; color: #444; font-weight: 600;">Total Return (%)</div>
+                        <div>{color_val(total_return, is_pct=True, show_hkd=True)}</div>
+                    </div>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
+                    <div>
+                        <div style="font-size: 0.85em; color: #444; font-weight: 600;">Max. Hist. Return ($)</div>
+                        <div>{color_val(max_return, show_hkd=True)}</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 0.85em; color: #444; font-weight: 600;">Total Cum. Return (%)</div>
+                        <div>{color_val(total_cum_return, is_pct=True)}</div>
+                    </div>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                    <div>
+                        <div style="font-size: 0.85em; color: #444; font-weight: 600;">Benchmark (SPY)</div>
+                        <div style="color: #222;">{benchmark_total_return:.2%}</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 0.85em; color: #444; font-weight: 600;">Alpha (ann.)</div>
+                        <div>{color_val(alpha, is_pct=True)}</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- RISK METRICS -->
+            <div style="padding: 20px; background-color: #ffffff;">
+                <h3 style="margin-top: 0; color: #333; border-bottom: 2px solid #dc3545; padding-bottom: 5px; display: inline-block;">RISK METRICS</h3>
+                <div style="margin-bottom: 15px;">
+                    <div style="font-size: 0.9em; color: #444; font-weight: 600;">Annualized Volatility</div>
+                    <div style="font-size: 1.2em; font-weight: bold; color: #000;">{volatility:.2%}</div>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 10px;">
+                    <div>
+                        <div style="font-size: 0.85em; color: #444; font-weight: 600;">Sharpe Ratio</div>
+                        <div style="font-weight: 500; color: #222;">{sharpe_ratio:.2f} <span style="font-size: 0.8em; color: #666;">| {benchmark_sharpe_ratio:.2f}</span></div>
+                    </div>
+                    <div>
+                        <div style="font-size: 0.85em; color: #444; font-weight: 600;">Sortino Ratio</div>
+                        <div style="font-weight: 500; color: #222;">{sortino_ratio:.2f} <span style="font-size: 0.8em; color: #666;">| {benchmark_sortino_ratio:.2f}</span></div>
+                    </div>
+                    <div>
+                        <div style="font-size: 0.85em; color: #444; font-weight: 600;">Beta (vs SPY)</div>
+                        <div style="color: #222;">{portfolio_beta:.2f}</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 0.85em; color: #444; font-weight: 600;">Tracking Error</div>
+                        <div style="color: #222;">{tracking_error:.2%}</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 0.85em; color: #444; font-weight: 600;">Max Drawdown</div>
+                        <div style="color: red;">{max_drawdown:.2%}</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 0.85em; color: #444; font-weight: 600;">VaR (95% 1-day)</div>
+                        <div style="color: red;">{var_95_percent_return:.2%}</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 0.85em; color: #444; font-weight: 600;">Down Capture Ratio</div>
+                        <div style="color: #222;">{down_capture:.2f}</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 0.85em; color: #444; font-weight: 600;">Up Capture Ratio</div>
+                        <div style="color: #222;">{up_capture:.2f}</div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- COMPOSITION -->
+        <div style="padding: 20px; border-bottom: 1px solid #e0e0e0; background-color: #ffffff;">
+            <h3 style="margin-top: 0; color: #333; border-bottom: 2px solid #28a745; padding-bottom: 5px; display: inline-block;">PORTFOLIO COMPOSITION</h3>
+            <div style="margin-bottom: 10px;">
+                <span style="font-weight: bold; color: #444;">Asset Allocation:</span> 
+                <span style="color: #222;">{asset_alloc_str}</span>
+            </div>
+            <div style="margin-bottom: 10px;">
+                <span style="font-weight: bold; color: #444;">Top 3 Sectors:</span> 
+                <span style="color: #222;">{sector_alloc_str}</span>
+            </div>
+            <div style="display: flex; gap: 30px;">
+                <div>
+                    <span style="font-weight: bold; color: #444;">Top 10 Concentration:</span> 
+                    <span style="color: #222;">{top_10_pct:.1%}</span>
+                </div>
+                <div>
+                    <span style="font-weight: bold; color: #444;">Total Holdings:</span> 
+                    <span style="color: #222;">{num_holdings}</span>
+                </div>
+            </div>
+        </div>
+        
+        <!-- METRIC DEFINITIONS FOOTER -->
+        <div style="padding: 15px 20px; background-color: #f9f9f9; color: #555; font-size: 0.8em; border-top: 1px solid #eee;">
+            <div style="font-weight: bold; margin-bottom: 5px; color: #333;">Metric Definitions:</div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px;">
+                <div><strong>Sharpe:</strong> Excess return per unit of total risk (volatility).</div>
+                <div><strong>Sortino:</strong> Excess return per unit of downside risk.</div>
+                <div><strong>Beta:</strong> Portfolio volatility relative to the market (SPY).</div>
+                <div><strong>Alpha:</strong> Excess return over expected return given risk.</div>
+                <div><strong>VaR (95%):</strong> Max expected loss in 1 day with 95% confidence.</div>
+                <div><strong>Tracking Error:</strong> Deviation of portfolio returns from benchmark.</div>
+            </div>
+        </div>
+    </div>
+    """
+
+    return summary_sheet

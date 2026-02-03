@@ -1,0 +1,33 @@
+# --- Python Internals ---
+# Ignore the "compiled" files (the .pyc files you saw earlier)
+__pycache__/
+*.pyc
+tempCodeRunnerFile.py
+
+# --- Jupyter Notebooks ---
+# Ignore the auto-save checkpoints created by Jupyter
+.ipynb_checkpoints/
+
+# --- Data Files ---
+# Ignore large datasets to keep the repository light
+# (You can remove these lines if you have small data you WANT to track)
+*.csv
+*.parquet
+*.xlsx
+*.json
+
+# --- Outputs ---
+*.html
+
+
+# --- Virtual Environments ---
+# Ignore the folder where you install libraries (if you use one)
+env/
+venv/
+.env
+
+# --- OS Junk ---
+# Mac system files
+.DS_Store
+# Windows system files
+Thumbs.db
