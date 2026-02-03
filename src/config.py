@@ -13,6 +13,7 @@ OUTPUT_DIR = os.path.join(PROJECT_ROOT, "output") # For report generated
 
 load_dotenv(DOTENV_PATH)
 TRADE_EXCEL_SOURCE = os.getenv("TRADE_EXCEL_FILE")
+TRADE_EXCEL_SHEET = os.getenv("TRADE_EXCEL_SHEET")
 
 # Configuration
 TRADE_HISTORY_FILE = os.path.join(INPUT_DIR, 'trade_history.csv')

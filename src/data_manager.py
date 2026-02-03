@@ -14,7 +14,7 @@ def copy_file(source, destination_dir):
     except Exception as e:
         print(f"Error copying file: {e}")
 
-def get_trade_df(file_path, sheet_name='Investment Book'):
+def get_trade_df(file_path, sheet_name=config.TRADE_EXCEL_SHEET):
     """
     Read the Excel file and return a list of symbols from the specified sheet.
     """
