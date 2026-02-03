@@ -2,16 +2,11 @@ import config
 import os 
 import pandas as pd 
 import numpy as np 
-from scipy import stats
 import yfinance as yf 
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
-import plotly.express as px
-import plotly.graph_objects as go
 import seaborn as sns
-from plotly.subplots import make_subplots
 import concurrent.futures
-import warnings
 
 
 class PortfolioTracker:
@@ -27,10 +22,11 @@ class PortfolioTracker:
         self.dividend_history = []
         
     def fetch_market_data(self):
-        print(f"Fetching data for: {self.symbols}")
+        print(f"Processing data for: {self.symbols}")
 
         def process_symbol(symbol):
             try:
+                print(f"Fetching data for {symbol}...")
                 ticker = yf.Ticker(symbol)
                 start_str = (self.start_date - timedelta(days=5)).strftime('%Y-%m-%d')
                 
@@ -92,7 +88,6 @@ class PortfolioTracker:
                         combined_min.to_csv(minute_path)
                     else:
                         new_min.to_csv(minute_path)
-                        
             except Exception as e:
                 print(f"Error processing {symbol}: {e}")
 

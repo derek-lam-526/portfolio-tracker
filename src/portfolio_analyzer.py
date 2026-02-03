@@ -4,15 +4,10 @@ import pandas as pd
 import numpy as np 
 from scipy import stats
 import yfinance as yf 
-from datetime import datetime, timedelta, date
+from datetime import datetime
 import matplotlib.pyplot as plt
-import plotly.express as px
 import plotly.graph_objects as go
-import seaborn as sns
 from plotly.subplots import make_subplots
-from IPython.display import display, HTML
-import concurrent.futures
-import warnings
 
 def calculate_performance_metrics(history_df):
     history_df['Prev_Equity'] = history_df['Total_Equity'].shift(1)
