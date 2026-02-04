@@ -238,32 +238,134 @@ def get_pnl_plot(history_df, show = False):
         fig_pnl.show()
     
     return fig_pnl
+
+def get_wealth_plot(history_df, show = False):
+    fig = make_subplots(
+        rows=2, cols=1, 
+        shared_xaxes=True, 
+        vertical_spacing=0.08,
+        row_heights=[0.6, 0.4], # Give more space to the main wealth chart
+        subplot_titles=("Equity and Invested Capital Curve", "Total PnL")
+    )
     
-def get_returns_plot(history_df, show = False):
-    dpi=config.MPL_DPI
-    fig_return, (ax1, ax2) = plt.subplots(2, 1, figsize=(1400/dpi, 500/dpi), dpi=dpi)
+    # --- Graph 1 ---
+    # Invested Capital 
+    fig.add_trace(go.Scatter(
+        x=history_df.index, 
+        y=history_df['Invested_Capital'],
+        mode='lines',
+        name='Invested Capital',
+        line=dict(color='#555555', width=1.5, dash='dash'), 
+        legendgroup='group1'
+    ), row=1, col=1)
 
-    # Daily Returns
-    ax1.plot(history_df.index, history_df['Daily_Return'] * 100, label='Daily Return %', color='purple', linewidth=1)
-    ax1.axhline(0, color='black', linestyle='-', linewidth=0.5)
-    ax1.set_title('Daily Return % (Adjusted)')
-    ax1.set_ylabel('Return (%)')
-    ax1.grid(True, alpha=0.3)
+    # Total Equity
+    fig.add_trace(go.Scatter(
+        x=history_df.index, 
+        y=history_df['Total_Equity'],
+        mode='lines',
+        name='Total Equity',
+        line=dict(color='#2E7D32', width=2), # Darker Green
+        fill='tonexty', 
+        fillcolor='rgba(46, 125, 50, 0.1)', # Matching transparent green
+        legendgroup='group1'
+    ), row=1, col=1)
 
-    # Total Cumulative Return
-    ax2.plot(history_df.index, history_df['Cumulative_Return'] * 100, label='Total Return %', color='teal')
-    ax2.axhline(0, color='black', linestyle='-', linewidth=0.5)
-    ax2.fill_between(history_df.index, history_df['Cumulative_Return'] * 100, 0, alpha=0.2, color='teal')
-    ax2.set_title('Total Cumulative Return %')
-    ax2.set_ylabel('Return (%)')
-    ax2.grid(True, alpha=0.3)
+    # --- Graph 2 ---
+    fig.add_trace(go.Scatter(
+        x=history_df.index, 
+        y=history_df['PnL'],
+        mode='lines',
+        name='Net PnL',
+        line=dict(color='#1976D2', width=2), # Strong Blue
+        fill='tozeroy', 
+        fillcolor='rgba(25, 118, 210, 0.1)', # Matching transparent blue
+        legendgroup='group2'
+    ), row=2, col=1)
 
-    plt.tight_layout()
+    fig.add_hline(y=0, line_dash="dash", line_color="gray", row=2, col=1)
     
+    # Layout
+    fig.update_layout(
+        template="plotly_white", # <--- SWITCHED TO LIGHT MODE
+        hovermode="x unified",
+        height=700,
+        showlegend=True,
+    )
+
+    fig.update_yaxes(title_text="Value ($)", showgrid=True, gridcolor='#E0E0E0', row=1, col=1)
+    fig.update_yaxes(title_text="PnL ($)", showgrid=True, gridcolor='#E0E0E0', row=2, col=1)
+    fig.update_xaxes(showgrid=True, gridcolor='#E0E0E0')
+    fig.update_xaxes(
+        rangebreaks=[
+            dict(bounds=["sat", "mon"]) # hide weekends
+        ]
+    )
+
     if show:
-        plt.show()
+        fig.show()
+        
+    return fig
+
+def get_returns_plot(history_df, show=False):
+    fig = make_subplots(
+        rows=2, cols=1, 
+        shared_xaxes=True, 
+        vertical_spacing=0.08,
+        subplot_titles=("Daily Return %", "Total Cumulative Return %"),
+        row_heights=[0.5, 0.5]
+    )
+
+    # --- GRAPH 1: Daily Returns ---
+    daily_colors = ['#00897B' if val >= 0 else '#D32F2F' for val in history_df['Daily_Return']]
     
-    return fig_return
+    fig.add_trace(go.Bar(
+        x=history_df.index, 
+        y=history_df['Daily_Return'] * 100,
+        name='Daily Return %',
+        marker_color=daily_colors,
+        hovertemplate='%{y:.2f}%',
+        marker_line_width=0 
+    ), row=1, col=1)
+
+    # --- GRAPH 2: Cumulative Returns ---
+    fig.add_trace(go.Scatter(
+        x=history_df.index, 
+        y=history_df['Cumulative_Return'] * 100,
+        mode='lines',
+        name='Total Return %',
+        line=dict(color='#0277BD', width=2), 
+        fill='tozeroy', 
+        fillcolor='rgba(2, 119, 189, 0.1)', 
+        hovertemplate='%{y:.2f}%'
+    ), row=2, col=1)
+
+    # --- Layout ---
+    fig.update_layout(
+        template="plotly_white",
+        hovermode="x unified",
+        height=600,
+        showlegend=False,
+        bargap=0.05 
+    )
+
+    # Zero Lines & Grids
+    fig.add_hline(y=0, line_dash="solid", line_color="#333", line_width=1, row=1, col=1)
+    fig.add_hline(y=0, line_dash="solid", line_color="#333", line_width=1, row=2, col=1)
+
+    fig.update_xaxes(showgrid=True, gridcolor='#E0E0E0')
+    fig.update_yaxes(title_text="Daily %", showgrid=True, gridcolor='#E0E0E0', row=1, col=1)
+    fig.update_yaxes(title_text="Total %", showgrid=True, gridcolor='#E0E0E0', row=2, col=1)
+    fig.update_xaxes(
+        rangebreaks=[
+            dict(bounds=["sat", "mon"]) # hide weekends
+        ]
+    )
+
+    if show:
+        fig.show()
+        
+    return fig
 
 def get_allocation(history_df, trades_df, portfolio_tracker, show=False):
     last_holdings = {}
@@ -394,8 +496,7 @@ def get_allocation(history_df, trades_df, portfolio_tracker, show=False):
     ), 1, 2)
 
     fig_alloc.update_layout(title_text=f"Portfolio Allocation (Total: ${total_portfolio_value:,.2f})", 
-                    width=1200,
-                    height=550,
+                    height=600,
                     showlegend=False)
 
     # Display DataFrame

@@ -34,7 +34,7 @@ def main():
 
     # Analysis and plots
     metrics = analyzer.calculate_performance_metrics(history_df)
-    fig_pnl = analyzer.get_pnl_plot(history_df, show = False)
+    fig_pnl = analyzer.get_wealth_plot(history_df, show = False)
     fig_return = analyzer.get_returns_plot(history_df, show=False)
     fig_alloc, df_alloc, category_values, sector_values, current_values, current_holdings = analyzer.get_allocation(history_df, trades_df, portfolio_tracker, show=False)
 
@@ -44,6 +44,17 @@ def main():
     # Create report
     report_path = report_manager.create_report(fig_pnl, fig_return, fig_alloc, summary_sheet, df_alloc)
     print(f"✅ Report saved to: {report_path}")
+
+def test():
+    trades_df = get_trade_history()
     
+    # Initialise tracker
+    portfolio_tracker = tracker.PortfolioTracker(trades_df)
+    history_df = get_portfolio_history(portfolio_tracker)
+    metrics = analyzer.calculate_performance_metrics(history_df)
+
+    # Analysis and plots
+    print(history_df)
+
 if __name__ == "__main__":
     main()

@@ -4,7 +4,7 @@ import io
 import base64
 from datetime import datetime
 
-def create_report(fig_pnl, fig_return, fig_alloc, summary_sheet, df_alloc, output_dir=config.OUTPUT_DIR):
+def create_report(fig_pnl, fig_returns, fig_alloc, summary_sheet, df_alloc, output_dir=config.OUTPUT_DIR):
     """Create an interactive HTML report with DataTables"""
     
     current_date = datetime.now().strftime('%Y-%m-%d')
@@ -20,6 +20,14 @@ def create_report(fig_pnl, fig_return, fig_alloc, summary_sheet, df_alloc, outpu
         default_height='500px', 
         config=plotly_config    
     )
+
+    returns_html = fig_returns.to_html(
+        full_html=False, 
+        include_plotlyjs='cdn',
+        default_width='100%',  
+        default_height='500px', 
+        config=plotly_config    
+    )
     
     alloc_html = fig_alloc.to_html(
         full_html=False, 
@@ -28,13 +36,7 @@ def create_report(fig_pnl, fig_return, fig_alloc, summary_sheet, df_alloc, outpu
         default_height='500px',
         config=plotly_config
     )
-    
-    # Convert matplotlib figure to base64
-    buf = io.BytesIO()
-    fig_return.savefig(buf, format='png', dpi=150, bbox_inches='tight')
-    buf.seek(0)
-    return_plot_base64 = base64.b64encode(buf.getvalue()).decode('utf-8')
-    
+
     # Convert summary sheet
     if hasattr(summary_sheet, 'data'):
         summary_content = summary_sheet.data
@@ -172,16 +174,13 @@ def create_report(fig_pnl, fig_return, fig_alloc, summary_sheet, df_alloc, outpu
                     <div class="plot-container">
                         {pnl_html}
                     </div>
-                    <p><i>Hover over the chart to see detailed values. Use the toolbar to zoom, pan, or download.</i></p>
                 </div>
                 
                 <div class="section">
                     <h2>📊 Returns Analysis</h2>
                     <div class="plot-container">
-                        <img src="data:image/png;base64,{return_plot_base64}" 
-                             alt="Returns Plot" style="width:100%; max-width:1600px; border-radius:5px;">
+                        {returns_html}
                     </div>
-                    <p><i>Static image of returns analysis. For interactive version, run the notebook.</i></p>
                 </div>
                 
                 <div class="section">
@@ -189,15 +188,13 @@ def create_report(fig_pnl, fig_return, fig_alloc, summary_sheet, df_alloc, outpu
                     <div class="plot-container">
                         {alloc_html}
                     </div>
-                    <p><i>Click on legend items to show/hide categories. Hover for exact percentages.</i></p>
                 </div>
             </div>
             
             <!-- Tab 3: Interactive Data -->
             <div id="tab3" class="tab-content">
                 <div class="section">
-                    <h2>📊 Interactive Allocation Data</h2>
-                    <p>Use the search box to filter, click on column headers to sort, or use the buttons to export data.</p>
+                    <h2>Allocation Data</h2>
                     <div class="export-buttons"></div>
                     {table_html}
                     

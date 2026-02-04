@@ -91,7 +91,7 @@ class PortfolioTracker:
             except Exception as e:
                 print(f"Error processing {symbol}: {e}")
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=30) as executor:
             executor.map(process_symbol, self.symbols)
             
     def process_portfolio(self):
