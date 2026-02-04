@@ -42,6 +42,12 @@ The Excel file should have the following headers:
 | DATE | MARKET | SYMBOL | BUY/SELL | QTY | PRICE | AMT |
 |------|--------|--------|----------|-----|-------|-----|
 
+### Market Validation
+The **MARKET** column is strictly validated. You must use one of the following options:
+
+1. **US**: stocks in the US market
+2. **HK**: stocks in the HK market
+
 ### Trade Validation ("BUY/SELL" Column)
 The **BUY/SELL** column is strictly validated. You must use one of the following four options:
 
