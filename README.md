@@ -1,78 +1,125 @@
 # Portfolio Performance Tracker
 
-A comprehensive Python-based tool that tracks investment portfolio performance, calculates risk metrics (Sharpe, Sortino, Alpha, Beta), and generates interactive HTML reports. It uses `yfinance` for market data and supports cash flow management (deposits/withdrawals).
+A comprehensive, Python-based investment portfolio tracker that automates data fetching, calculates professional-grade risk metrics, and generates an interactive HTML dashboard. 
 
-## Features
+Built with **Pandas**, **yfinance**, and **Plotly**, this tool reconstructs your portfolio's daily history from a simple list of trades to provide deep insights into your investing performance.
 
-* **Automated Data Fetching:** Retrieves historical price data using Yahoo Finance.
-* **Performance Analysis:** Calculates Daily Returns, Cumulative Returns, and PnL.
-* **Risk Metrics:** Computes Sharpe Ratio, Sortino Ratio, Beta (vs SPY), Alpha, and VaR (Value at Risk).
-* **Interactive Reporting:** Generates a standalone HTML dashboard with interactive plots (Plotly) and sortable holdings tables.
-* **Cash Flow Handling:** Accurately adjusts for Deposits and Withdrawals to calculate Time-Weighted or Money-Weighted returns.
+## 🚀 Key Features
 
-## Project Structure
+* **Automated Data Engine**: Fetches historical price data (Daily & Minute resolution) using `yfinance`.
+* **Smart Caching**: Caches market data and metadata locally (`data/portfolio_metadata.pkl`) to significantly speed up subsequent runs and minimize API rate limits.
+* **Advanced Risk Analysis**:
+    * **Performance**: Cumulative Returns, Daily PnL, Drawdowns.
+    * **Metrics**: Sharpe Ratio, Sortino Ratio, Alpha, Beta (vs SPY), Value at Risk (VaR 95%), and Tracking Error.
+    * **Concentration**: Analyzes top holdings and sector allocation.
+* **Interactive Dashboard**: 
+    * Generates a standalone HTML file with zoomable Plotly charts.
+    * Includes a **searchable, sortable Holdings Table** using DataTables.
+    * Visualizes Monthly Returns with a heatmap.
+* **Cash Flow Management**: accurately handles Deposits and Withdrawals to track Invested Capital vs. Market Value.
 
-* `main.py`: Entry point. Orchestrates data fetching, processing, and reporting.
-* `portfolio_tracker.py`: Core logic for portfolio state reconstruction (daily holdings/equity).
-* `portfolio_analyzer.py`: logic for mathematical/statistical metric calculations.
-* `data_manager.py`: Handles Excel ingestion and CSV conversion.
-* `report_manager.py`: Compiles figures and stats into the final HTML report.
-* `config.py`: Configuration settings and path management.
+---
 
-## Installation
+## 📂 Project Structure
 
-1.  **Clone the repository** (or download source files).
-2.  **Install dependencies:**
-    ```bash
-    pip install -r requirements.txt
-    ```
-3.  **Environment Setup:**
-    Create a `.env` file in the project root directory to point to your Excel trade file:
-    ```env
-    TRADE_EXCEL_FILE="C:/path/to/your/Financials.xlsx"
-    TRADE_EXCEL_SHEET="excel sheet name"
-    ```
+* `main.py`: The entry point. Orchestrates the workflow from data loading to report generation.
+* `config.py`: Central configuration. Manages file paths, constants (like Benchmarks), and environment variables.
+* `portfolio_tracker.py`: Core engine. Reconstructs portfolio state day-by-day, handles dividends/splits, and manages the data cache.
+* `portfolio_analyzer.py`: Statistical engine. Calculates all financial metrics (Alpha, Beta, etc.) and prepares plot data.
+* `report_manager.py`: Renders the final HTML report, embedding plots and JavaScript for interactivity.
+* `data_manager.py`: Utilities for reading your Excel trade log and converting it to a standardized CSV.
 
-## Input Data Format (Crucial)
+---
 
-The system ingests trades from an Excel file (specified in your `.env`).
+## ⚙️ Configuration & Setup
 
-### Columns
-The Excel file should have the following headers:
-| DATE | MARKET | SYMBOL | BUY/SELL | QTY | PRICE | AMT |
-|------|--------|--------|----------|-----|-------|-----|
+This project uses `python-dotenv` to manage sensitive paths and configuration separate from the code.
 
-### Market Validation
-The **MARKET** column is strictly validated. You must use one of the following options:
+### 1. Environment Variables (`.env`)
+Create a file named `.env` in the root directory of the project. Add the absolute path to your trade Excel file:
 
-1. **US**: stocks in the US market
-2. **HK**: stocks in the HK market
+```ini
+# .env file content
+TRADE_EXCEL_FILE="C:/Users/YourName/Documents/Finance/MyTrades.xlsx"
+TRADE_EXCEL_SHEET="Sheet1"
 
-### Trade Validation ("BUY/SELL" Column)
-The **BUY/SELL** column is strictly validated. You must use one of the following four options:
+```
 
-1.  **Buy**: Purchase of an asset.
-2.  **Sell**: Sale of an asset.
-3.  **Deposit**: Cash addition to the portfolio (increases Invested Capital).
-4.  **Withdraw**: Cash removal from the portfolio (decreases Invested Capital).
+### 2. General Settings (`config.py`)
 
-> **Note:** The `Deposit` and `Withdraw` options are for **CASH** adjustments only. When using these, ensure the `SYMBOL` column is set to a cash placeholder (e.g., `CASH`) if required by your specific logic, though the tracker primarily looks at the monetary value impact.
+You can modify `config.py` to customize analysis parameters:
 
-## Usage
+* `METRICS_BENCHMARK`: Ticker used for Alpha/Beta calculations (Default: `"SPY"`).
+* `PLOT_BENCHMARK`: List of tickers to plot for comparison (Default: `["SPY", "QQQ", "VEU"]`).
+* `NO_DIVIDEND_TAX`: List of tickers exempt from dividend tax adjustments (e.g., `['SHV', 'SGOV']`).
 
-1.  Update your Excel file with your latest trades.
-2.  Run the main script:
-    ```bash
-    python main.py
-    ```
-3.  **View Report:**
-    * The script will generate `trade_history.csv` in the `input/` folder.
-    * The final HTML report will be saved to the `output/` folder (e.g., `portfolio_report_2023-10-27.html`).
-    * Open the HTML file in any web browser to view your performance dashboard.
+---
 
-## Metrics Explained (in Report)
+## 📊 Input File Format (Excel)
 
-* **Sharpe Ratio:** Excess return per unit of total risk (volatility).
-* **Sortino Ratio:** Excess return per unit of downside risk (harmful volatility).
-* **Alpha:** The excess return of the portfolio over the benchmark (SPY) given its risk (Beta).
-* **Beta:** The portfolio's volatility relative to the market. A beta of 1.5 means the portfolio is 50% more volatile than the market.
+Your Excel file acts as the source of truth. It **must** contain the following columns (headers are case-insensitive).
+
+### **Excel Sample**
+
+| DATE | MARKET | SYMBOL | BUY/SELL | QTY | PRICE | FEE |
+| --- | --- | --- | --- | --- | --- | --- |
+| 05/01/2025 | US | CASH | Deposit | 1 | 5000 | 0 |
+| 15/01/2025 | US | AAPL | Buy | 10 | 145.50 | 2.00 |
+| 11/02/2025 | US | MSFT | Buy | 5 | 260.00 | 1.50 |
+| 03/08/2025 | US | AAPL | Sell | 5 | 160.00 | 2.00 |
+| 12/12/2025 | US | CASH | Withdraw | 1 | 1000 | 0 |
+
+
+### **Column Definitions**
+
+| Column | Description |
+| --- | --- |
+| **DATE** | The transaction date (format: `DD/MM/YYYY` or Excel Date format). |
+| **MARKET** | The specific market code for the asset (e.g., US).
+| **SYMBOL** | Ticker symbol (e.g., `AAPL`, `TSLA`). **Use `CASH` for Deposits/Withdrawals.** |
+| **BUY/SELL** | The action taken. Must be one of: `Buy`, `Sell`, `Deposit`, `Withdraw`. |
+| **QTY** | Number of shares. (Use `1` for Deposits/Withdrawals if putting full amount in Price). |
+| **PRICE** | Price per share. (For Deposits/Withdrawals, this is the total cash amount). |
+| **FEE** | (Optional) Brokerage commission or fees paid. Defaults to 0 if left blank. |
+
+> **Note on Cash Flows:** > * **Deposit**: Increases your "Invested Capital".
+> * **Withdraw**: Decreases your "Invested Capital".
+> * The script calculates the total transaction amount automatically: `(QTY * PRICE)`.
+> 
+> 
+
+---
+
+## 🛠️ Usage
+
+1. **Install Dependencies:**
+```bash
+pip install pandas numpy yfinance plotly scipy matplotlib seaborn python-dotenv openpyxl pickle
+
+```
+
+2. **Run the Tracker:**
+```bash
+python main.py
+
+```
+
+
+3. **View Output:**
+* The script will process your trades, fetch missing market data, and calculate metrics.
+* A new report will be generated in the `output/` folder: `portfolio_report_YYYY-MM-DD.html`.
+* The report automatically opens in your default web browser.
+
+
+---
+
+## 📉 Metrics Glossary
+
+The generated report includes the following financial metrics:
+
+* **Sharpe Ratio:** Measure of risk-adjusted return. (Excess return / Volatility).
+* **Sortino Ratio:** Similar to Sharpe, but only penalizes *downside* volatility.
+* **Alpha:** The excess return of the portfolio relative to the benchmark (`SPY`).
+* **Beta:** Volatility relative to the market. (Beta > 1.0 means more volatile than the market).
+* **VaR (95%):** Value at Risk. The maximum expected loss in a single day with 95% confidence.
+* **Tracking Error:** The standard deviation of the difference between your portfolio returns and the benchmark.
