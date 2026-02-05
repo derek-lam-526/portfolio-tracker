@@ -4,7 +4,7 @@ import io
 import base64
 from datetime import datetime
 
-def create_report(fig_pnl, fig_returns, fig_alloc, summary_sheet, df_alloc, output_dir=config.OUTPUT_DIR):
+def create_report(fig_wealth, fig_returns, fig_alloc, summary_sheet, df_alloc, output_dir=config.OUTPUT_DIR):
     """Create an interactive HTML report with DataTables"""
     
     current_date = datetime.now().strftime('%Y-%m-%d')
@@ -13,7 +13,7 @@ def create_report(fig_pnl, fig_returns, fig_alloc, summary_sheet, df_alloc, outp
     # Convert Plotly figures
     plotly_config = {'responsive': True, 'displayModeBar': True}   
     
-    pnl_html = fig_pnl.to_html(
+    wealth_html = fig_wealth.to_html(
         full_html=False, 
         include_plotlyjs='cdn',
         default_width='100%',  
@@ -172,7 +172,7 @@ def create_report(fig_pnl, fig_returns, fig_alloc, summary_sheet, df_alloc, outp
                 <div class="section">
                     <h2>📈 Total P&L Over Time</h2>
                     <div class="plot-container">
-                        {pnl_html}
+                        {wealth_html}
                     </div>
                 </div>
                 

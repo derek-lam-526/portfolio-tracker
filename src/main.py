@@ -1,6 +1,7 @@
 import time
 import os
 import pandas as pd
+import webbrowser
 
 import config 
 import data_manager
@@ -34,7 +35,7 @@ def main():
 
     # Analysis and plots
     metrics = analyzer.calculate_performance_metrics(history_df)
-    fig_pnl = analyzer.get_wealth_plot(history_df, show = False)
+    fig_wealth = analyzer.get_wealth_plot(history_df, show = False)
     fig_return = analyzer.get_returns_plot(history_df, show=False)
     fig_alloc, df_alloc, category_values, sector_values, current_values, current_holdings = analyzer.get_allocation(history_df, trades_df, portfolio_tracker, show=False)
 
@@ -42,8 +43,14 @@ def main():
     summary_sheet = analyzer.get_summary_sheet(history_df, category_values, sector_values, current_values, current_holdings)
 
     # Create report
-    report_path = report_manager.create_report(fig_pnl, fig_return, fig_alloc, summary_sheet, df_alloc)
+    report_path = report_manager.create_report(fig_wealth, fig_return, fig_alloc, summary_sheet, df_alloc)
     print(f"✅ Report saved to: {report_path}")
+    is_open = webbrowser.open(report_path.as_uri())
+    if is_open:
+        print(f"✅ Opened report in browser")
+    else:
+        print(f"❌ Could not open browser automatically. Please open the file manually.")
+
 
 def test():
     trades_df = get_trade_history()
