@@ -156,7 +156,7 @@ def calculate_performance_metrics(history_df):
     if len(history_df) > 0:
         total_return = (history_df['Total_Equity'].iloc[-1] / history_df['Invested_Capital'].iloc[-1]) - 1
         rolling_max = history_df['Total_Equity'].cummax()
-        drawdowns = (history_df['Total_Equity'] / rolling_max - 1)
+        drawdowns = (history_df['Total_Equity'] / rolling_max) - 1
         max_drawdown = drawdowns.min()
     else:
         total_return = 0
@@ -290,6 +290,13 @@ def get_wealth_plot(history_df, show = False):
         hovermode="x unified",
         height=700,
         showlegend=True,
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02, 
+            xanchor="right",
+            x=1
+        ),
     )
 
     fig.update_yaxes(title_text="Value ($)", showgrid=True, gridcolor='#E0E0E0', row=1, col=1)
@@ -398,6 +405,48 @@ def get_returns_plot(history_df, show=False):
             dict(bounds=["sat", "mon"]) # hide weekends
         ]
     )
+
+    if show:
+        fig.show()
+        
+    return fig
+
+def get_drawdown_plot(history_df, show=False):
+    rolling_max = history_df['Total_Equity'].cummax()
+    drawdowns = (history_df['Total_Equity'] / rolling_max) - 1
+
+    fig = go.Figure()
+
+    fig.add_trace(go.Scatter(
+        x=drawdowns.index, 
+        y=drawdowns * 100,
+        mode='lines',
+        name='Drawdown',
+        line=dict(color='#D32F2F', width=1), # Red Line
+        fill='tozeroy',
+        fillcolor='rgba(211, 47, 47, 0.2)', # Red Fill
+        hovertemplate='%{y:.2f}%'
+    ))
+
+    # 3. Layout
+    fig.update_layout(
+        title_text="Underwater Plot (Drawdown from Peak)",
+        template="plotly_white",
+        height=400,
+        showlegend=False,
+        hovermode="x unified",
+        yaxis=dict(title='Drawdown (%)')
+    )
+    
+    # Add 0% Line
+    fig.add_hline(y=0, line_dash="solid", line_color="black", line_width=1)
+
+    # Clean X-Axis (Hide weekends)
+    fig.update_xaxes(
+        rangebreaks=[dict(bounds=["sat", "mon"])],
+        showgrid=True, gridcolor='#E0E0E0'
+    )
+    fig.update_yaxes(showgrid=True, gridcolor='#E0E0E0')
 
     if show:
         fig.show()

@@ -26,7 +26,6 @@ class PortfolioTracker:
 
         def process_symbol(symbol):
             try:
-                print(f"Fetching data for {symbol}...")
                 ticker = yf.Ticker(symbol)
                 start_str = (self.start_date - timedelta(days=5)).strftime('%Y-%m-%d')
                 

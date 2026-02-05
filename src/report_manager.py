@@ -4,8 +4,12 @@ import io
 import base64
 from datetime import datetime
 
-def create_report(fig_wealth, fig_returns, fig_alloc, summary_sheet, df_alloc, output_dir=config.OUTPUT_DIR):
-    """Create an interactive HTML report with DataTables"""
+def create_report(figs, df_alloc, output_dir=config.OUTPUT_DIR):
+    fig_wealth = figs["wealth"]
+    fig_drawdown = figs["drawdown"]
+    fig_returns = figs["returns"]
+    fig_alloc = figs["alloc"]
+    summary_sheet = figs["summary"]
     
     current_date = datetime.now().strftime('%Y-%m-%d')
     current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -18,6 +22,14 @@ def create_report(fig_wealth, fig_returns, fig_alloc, summary_sheet, df_alloc, o
         include_plotlyjs='cdn',
         default_width='100%',  
         default_height='500px', 
+        config=plotly_config    
+    )
+
+    drawdown_html = fig_drawdown.to_html(
+        full_html=False, 
+        include_plotlyjs='cdn',
+        default_width='100%',  
+        default_height='300px', 
         config=plotly_config    
     )
 
@@ -173,7 +185,9 @@ def create_report(fig_wealth, fig_returns, fig_alloc, summary_sheet, df_alloc, o
                     <h2>📈 Total P&L Over Time</h2>
                     <div class="plot-container">
                         {wealth_html}
+                        {drawdown_html}
                     </div>
+                    
                 </div>
                 
                 <div class="section">
