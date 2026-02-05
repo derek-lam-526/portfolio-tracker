@@ -15,6 +15,7 @@ tempCodeRunnerFile.py
 *.parquet
 *.xlsx
 *.json
+*.pkl
 
 # --- Outputs ---
 *.html

@@ -9,7 +9,6 @@ import seaborn as sns
 import concurrent.futures
 import pickle
 
-
 class PortfolioTracker:
     def __init__(self, trades_df):
         self.trades = trades_df.copy()
@@ -27,7 +26,7 @@ class PortfolioTracker:
         metadata_path = os.path.join(config.DATA_DIR, "portfolio_metadata.pkl")
         
         if not update:
-            print("⚠️ Update=False: Loading data from local cache...")
+            print("⚠️  Update=False: Loading data from local cache...")
 
             if os.path.exists(metadata_path):
                 try:
@@ -156,24 +155,28 @@ class PortfolioTracker:
                 price = trade['PRICE']
                 amt = trade['AMT']
                 type_ = trade['BUY/SELL']
+                fee = trade['FEE']
                 
                 if symbol == 'CASH':
                     if type_ == 'DEPOSIT':
-                        cash += amt
+                        net_deposit = amt - fee
+                        cash += net_deposit
                         invested_capital += amt
                         daily_net_flow += amt
                     elif type_ == 'WITHDRAW':
-                        cash -= amt
+                        net_withdrawal = amt + fee
+                        cash -= net_withdrawal
                         invested_capital -= amt
                         daily_net_flow -= amt
                 else:
                     if type_ == 'BUY':
                         holdings[symbol] += qty
-                        cash -= amt
-                        # Transaction cost can be added here
+                        total_cost = amt + fee
+                        cash -= total_cost
                     elif type_ == 'SELL':
                         holdings[symbol] -= qty
-                        cash += amt
+                        net_proceeds = amt - fee
+                        cash += net_proceeds
             
             # Process Dividends & Splits
             daily_value = 0.0
