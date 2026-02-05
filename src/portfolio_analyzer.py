@@ -42,57 +42,58 @@ def calculate_performance_metrics(history_df):
         print(f"Error fetching Risk Free Rate: {e}")
         history_df['Risk_Free_Rate_Daily'] = (1.04 ** (1/365)) - 1  # 4% annual, daily compounded
     
-    # Benchmark (SPY) & Beta
+    # Benchmark & Beta
     try:
-        spy_ticker = yf.Ticker("SPY")
+        benchmark_symbol = config.BENCHMARK
+        benchmark_ticker = yf.Ticker(benchmark_symbol)
         start_date_str = history_df.index.min().strftime('%Y-%m-%d')
-        spy_hist = spy_ticker.history(start=start_date_str)['Close']
-        spy_hist.index = spy_hist.index.tz_localize(None)
-        spy_returns = spy_hist.pct_change().fillna(0)
+        benchmark_hist = benchmark_ticker.history(start=start_date_str)['Close']
+        benchmark_hist.index = benchmark_hist.index.tz_localize(None)
+        benchmark_returns = benchmark_hist.pct_change().fillna(0)
         
         aligned_data = pd.DataFrame({
             'Portfolio': history_df['Daily_Return'],
-            'SPY': spy_returns,
+            benchmark_symbol: benchmark_returns,
             'Risk_Free_Rate': history_df['Risk_Free_Rate_Daily']
         }, index=history_df.index).dropna()
         
         if len(aligned_data) > 10:
             beta, alpha, r_value, p_value, std_err = stats.linregress(
-                aligned_data['SPY'], aligned_data['Portfolio']
+                aligned_data[benchmark_symbol], aligned_data['Portfolio']
             )
             portfolio_beta = beta
             
-            benchmark_total_return = (1 + aligned_data['SPY']).prod() - 1
+            benchmark_total_return = (1 + aligned_data[benchmark_symbol]).prod() - 1
             
-            tracking_error = (aligned_data['Portfolio'] - aligned_data['SPY']).std() * np.sqrt(252)
+            tracking_error = (aligned_data['Portfolio'] - aligned_data[benchmark_symbol]).std() * np.sqrt(252)
             
-            down_market = aligned_data[aligned_data['SPY'] < 0]
+            down_market = aligned_data[aligned_data[benchmark_symbol] < 0]
             if len(down_market) > 5:  # Need enough down days
                 portfolio_down_return = (1 + down_market['Portfolio']).prod() - 1
-                benchmark_down_return = (1 + down_market['SPY']).prod() - 1
+                benchmark_down_return = (1 + down_market[benchmark_symbol]).prod() - 1
                 down_capture = portfolio_down_return / benchmark_down_return if benchmark_down_return != 0 else np.nan
             else:
                 down_capture = np.nan
 
-            up_market = aligned_data[aligned_data['SPY'] > 0]
+            up_market = aligned_data[aligned_data[benchmark_symbol] > 0]
             if len(up_market) > 5:
                 portfolio_up_return = (1 + up_market['Portfolio']).prod() - 1
-                benchmark_up_return = (1 + up_market['SPY']).prod() - 1
+                benchmark_up_return = (1 + up_market[benchmark_symbol]).prod() - 1
                 up_capture = portfolio_up_return / benchmark_up_return if benchmark_up_return != 0 else np.nan
             else:
                 up_capture = np.nan
 
-            excess_spy_returns = aligned_data['SPY'] - aligned_data['Risk_Free_Rate']
-            if len(history_df) > 1 and aligned_data['SPY'].std() > 0:
-                spy_sharpe_ratio = (excess_spy_returns.mean() * 252) / (aligned_data['SPY'].std() * np.sqrt(252))
+            excess_benchmark_returns = aligned_data[benchmark_symbol] - aligned_data['Risk_Free_Rate']
+            if len(history_df) > 1 and aligned_data[benchmark_symbol].std() > 0:
+                benchmark_sharpe_ratio = (excess_benchmark_returns.mean() * 252) / (aligned_data[benchmark_symbol].std() * np.sqrt(252))
             else:
-                spy_sharpe_ratio = np.nan
+                benchmark_sharpe_ratio = np.nan
 
-            downside_spy_returns = aligned_data['SPY'][aligned_data['SPY'] < aligned_data['Risk_Free_Rate']]
-            if len(downside_spy_returns) > 1 and downside_spy_returns.std() > 0:
-                spy_sortino_ratio = (excess_spy_returns.mean() * 252) / (downside_spy_returns.std() * np.sqrt(252))
+            downside_benchmark_returns = aligned_data[benchmark_symbol][aligned_data[benchmark_symbol] < aligned_data['Risk_Free_Rate']]
+            if len(downside_benchmark_returns) > 1 and downside_benchmark_returns.std() > 0:
+                benchmark_sortino_ratio = (excess_benchmark_returns.mean() * 252) / (downside_benchmark_returns.std() * np.sqrt(252))
             else:
-                spy_sortino_ratio = np.nan
+                benchmark_sortino_ratio = np.nan
                 
         else:
             portfolio_beta = np.nan
@@ -131,16 +132,16 @@ def calculate_performance_metrics(history_df):
     if not np.isnan(portfolio_beta) and 'aligned_data' in locals() and len(aligned_data) > 10:
         # Geometric returns
         port_total_return = (1 + history_df['Daily_Return']).prod() - 1
-        spy_total_return = (1 + aligned_data['SPY']).prod() - 1
+        benchmark_total_return = (1 + aligned_data[benchmark_symbol]).prod() - 1
         rf_total_return = (1 + history_df['Risk_Free_Rate_Daily']).prod() - 1
         
         # Annualize
         n_days = len(history_df)
         port_return_annual = (1 + port_total_return) ** (252/n_days) - 1
-        spy_return_annual = (1 + spy_total_return) ** (252/n_days) - 1
+        benchmark_return_annual = (1 + benchmark_total_return) ** (252/n_days) - 1
         rf_annual = (1 + rf_total_return) ** (252/n_days) - 1
         
-        alpha = port_return_annual - (rf_annual + portfolio_beta * (spy_return_annual - rf_annual))
+        alpha = port_return_annual - (rf_annual + portfolio_beta * (benchmark_return_annual - rf_annual))
     else:
         alpha = np.nan
     
@@ -168,9 +169,9 @@ def calculate_performance_metrics(history_df):
     return {
         'first_date': first_date,
         'sharpe_ratio': sharpe_ratio,
-        'benchmark_sharpe_ratio': spy_sharpe_ratio,
+        'benchmark_sharpe_ratio': benchmark_sharpe_ratio,
         'sortino_ratio': sortino_ratio,
-        'benchmark_sortino_ratio': spy_sortino_ratio,
+        'benchmark_sortino_ratio': benchmark_sortino_ratio,
         'portfolio_beta': portfolio_beta,
         'alpha': alpha,
         'volatility': volatility,
@@ -651,7 +652,7 @@ def get_summary_sheet(history_df, category_values, sector_values, current_values
                 </div>
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
                     <div>
-                        <div style="font-size: 0.85em; color: #444; font-weight: 600;">Benchmark (SPY)</div>
+                        <div style="font-size: 0.85em; color: #444; font-weight: 600;">Benchmark {config.BENCHMARK}</div>
                         <div style="color: #222;">{benchmark_total_return:.2%}</div>
                     </div>
                     <div>
@@ -678,7 +679,7 @@ def get_summary_sheet(history_df, category_values, sector_values, current_values
                         <div style="font-weight: 500; color: #222;">{sortino_ratio:.2f} <span style="font-size: 0.8em; color: #666;">| {benchmark_sortino_ratio:.2f}</span></div>
                     </div>
                     <div>
-                        <div style="font-size: 0.85em; color: #444; font-weight: 600;">Beta (vs SPY)</div>
+                        <div style="font-size: 0.85em; color: #444; font-weight: 600;">Beta (vs {config.BENCHMARK})</div>
                         <div style="color: #222;">{portfolio_beta:.2f}</div>
                     </div>
                     <div>
@@ -735,7 +736,7 @@ def get_summary_sheet(history_df, category_values, sector_values, current_values
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px;">
                 <div><strong>Sharpe:</strong> Excess return per unit of total risk (volatility).</div>
                 <div><strong>Sortino:</strong> Excess return per unit of downside risk.</div>
-                <div><strong>Beta:</strong> Portfolio volatility relative to the market (SPY).</div>
+                <div><strong>Beta:</strong> Portfolio volatility relative to the market ({config.BENCHMARK}).</div>
                 <div><strong>Alpha:</strong> Excess return over expected return given risk.</div>
                 <div><strong>VaR (95%):</strong> Max expected loss in 1 day with 95% confidence.</div>
                 <div><strong>Tracking Error:</strong> Deviation of portfolio returns from benchmark.</div>
