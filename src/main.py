@@ -20,8 +20,8 @@ def get_trade_history() -> pd.DataFrame:
     trades_df = data_manager.load_trade_history(filepath=config.TRADE_HISTORY_FILE)
     return trades_df
 
-def get_portfolio_history(portfolio_tracker) -> pd.DataFrame:
-    portfolio_tracker.fetch_market_data()
+def get_portfolio_history(portfolio_tracker, update=True) -> pd.DataFrame:
+    portfolio_tracker.fetch_market_data(update=update)
     history_df = portfolio_tracker.process_portfolio()
     return history_df
 
@@ -31,7 +31,7 @@ def main():
     
     # Initialise tracker
     portfolio_tracker = tracker.PortfolioTracker(trades_df)
-    history_df = get_portfolio_history(portfolio_tracker)
+    history_df = get_portfolio_history(portfolio_tracker, update=True)
 
     # Analysis and plots
     metrics = analyzer.calculate_performance_metrics(history_df)
@@ -59,7 +59,6 @@ def main():
         print(f"✅ Opened report in browser")
     else:
         print(f"❌ Could not open browser automatically. Please open the file manually.")
-
 
 def test():
     trades_df = get_trade_history()

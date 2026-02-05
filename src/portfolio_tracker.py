@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
 import seaborn as sns
 import concurrent.futures
+import pickle
 
 
 class PortfolioTracker:
@@ -21,7 +22,34 @@ class PortfolioTracker:
         self.end_date = datetime.now()
         self.dividend_history = []
         
-    def fetch_market_data(self):
+    def fetch_market_data(self, update=True):
+        
+        metadata_path = os.path.join(config.DATA_DIR, "portfolio_metadata.pkl")
+        
+        if not update:
+            print("⚠️ Update=False: Loading data from local cache...")
+
+            if os.path.exists(metadata_path):
+                try:
+                    with open(metadata_path, 'rb') as f:
+                        meta = pickle.load(f)
+                        self.dividends = meta.get("dividends", {})
+                        self.splits = meta.get("splits", {})
+                        self.asset_info = meta.get("asset_info", {})
+                except Exception as e:
+                    print(f"Error loading metadata: {e}")
+            else:
+                print(f"No metadata cache found.")
+
+            for symbol in self.symbols:
+                file_name = f"{symbol}.csv"
+                daily_path = os.path.join(config.DAILY_DATA_DIR, file_name)
+                if os.path.exists(daily_path):
+                    self.market_data[symbol] = pd.read_csv(daily_path, index_col = 0, parse_dates=True)
+                else:
+                    print(f"Warning: No local data for {symbol}")
+            return 
+            
         print(f"Processing data for: {self.symbols}")
 
         def process_symbol(symbol):
@@ -92,6 +120,18 @@ class PortfolioTracker:
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=30) as executor:
             executor.map(process_symbol, self.symbols)
+
+        # --- Save metadata to cache --- 
+        try: 
+            with open(metadata_path, "wb") as f:
+                pickle.dump({
+                    "dividends": self.dividends,
+                    "splits": self.splits,
+                    "asset_info": self.asset_info
+                }, f)
+            print("✅ Market data and metadata updated successfully.")
+        except Exception as e:
+            print(f"Error saving metadata: {e}")
             
     def process_portfolio(self):
         date_range = pd.date_range(start=self.start_date, end=self.end_date, freq='D')
@@ -307,6 +347,6 @@ class PortfolioTracker:
             for pair in sorted(high_corr_pairs, key=lambda x: abs(x[2]), reverse=True):
                 print(f"  {pair[0]} - {pair[1]}: {pair[2]:.3f}")
         else:
-            print("  No highly correlated pairs found")
+            print("No highly correlated pairs found")
             
         return correlation_matrix
