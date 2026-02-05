@@ -44,7 +44,7 @@ def calculate_performance_metrics(history_df):
     
     # Benchmark & Beta
     try:
-        benchmark_symbol = config.BENCHMARK
+        benchmark_symbol = config.METRICS_BENCHMARK
         benchmark_ticker = yf.Ticker(benchmark_symbol)
         start_date_str = history_df.index.min().strftime('%Y-%m-%d')
         benchmark_hist = benchmark_ticker.history(start=start_date_str)['Close']
@@ -125,8 +125,6 @@ def calculate_performance_metrics(history_df):
         sortino_ratio = (excess_returns.mean() * 252) / (downside_returns.std() * np.sqrt(252))
     else:
         sortino_ratio = np.nan
-    
-
 
     # Alpha
     if not np.isnan(portfolio_beta) and 'aligned_data' in locals() and len(aligned_data) > 10:
@@ -309,6 +307,8 @@ def get_wealth_plot(history_df, show = False):
     return fig
 
 def get_returns_plot(history_df, show=False):
+    benchmark_symbols = config.PLOT_BENCHMARK
+
     fig = make_subplots(
         rows=2, cols=1, 
         shared_xaxes=True, 
@@ -330,23 +330,59 @@ def get_returns_plot(history_df, show=False):
     ), row=1, col=1)
 
     # --- GRAPH 2: Cumulative Returns ---
+    # Portfolio returns
     fig.add_trace(go.Scatter(
         x=history_df.index, 
         y=history_df['Cumulative_Return'] * 100,
         mode='lines',
-        name='Total Return %',
+        name='Total Portfolio Return %',
         line=dict(color='#0277BD', width=2), 
         fill='tozeroy', 
         fillcolor='rgba(2, 119, 189, 0.1)', 
         hovertemplate='%{y:.2f}%'
     ), row=2, col=1)
 
+    # Benchmark returns
+    start_date = history_df.index.min()
+    end_date = history_df.index.max()
+
+    benchmark_data = yf.download(benchmark_symbols, start=start_date, end=end_date + pd.Timedelta(days=1), progress=False, auto_adjust=True, group_by="column")["Close"]
+
+    if isinstance(benchmark_data, pd.Series):
+        benchmark_data = benchmark_data.to_frame(name=benchmark_symbols[0])
+
+    colors = ["#B73352", '#EF6C00', '#8E24AA', '#558B2F']
+
+    for i, ticker in enumerate(benchmark_symbols):
+        if ticker in benchmark_data.columns:
+            series = benchmark_data[ticker].dropna(axis=0)
+
+            cum_return = (series / series.iloc[0]) - 1
+
+            line_color = colors[i % len(colors)]
+
+            fig.add_trace(go.Scatter(
+                x=cum_return.index,
+                y=cum_return * 100,
+                mode='lines',
+                name=f'{ticker} Return',
+                line=dict(color=line_color, width=1.5, dash='solid'),
+                hovertemplate=f'{ticker}: %{{y:.2f}}%'
+            ), row=2, col=1)
+
     # --- Layout ---
     fig.update_layout(
         template="plotly_white",
         hovermode="x unified",
-        height=600,
-        showlegend=False,
+        height=650, 
+        showlegend=True,
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02, 
+            xanchor="right",
+            x=1
+        ),
         bargap=0.05 
     )
 
@@ -652,7 +688,7 @@ def get_summary_sheet(history_df, category_values, sector_values, current_values
                 </div>
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
                     <div>
-                        <div style="font-size: 0.85em; color: #444; font-weight: 600;">Benchmark {config.BENCHMARK}</div>
+                        <div style="font-size: 0.85em; color: #444; font-weight: 600;">Benchmark {config.METRICS_BENCHMARK}</div>
                         <div style="color: #222;">{benchmark_total_return:.2%}</div>
                     </div>
                     <div>
@@ -679,7 +715,7 @@ def get_summary_sheet(history_df, category_values, sector_values, current_values
                         <div style="font-weight: 500; color: #222;">{sortino_ratio:.2f} <span style="font-size: 0.8em; color: #666;">| {benchmark_sortino_ratio:.2f}</span></div>
                     </div>
                     <div>
-                        <div style="font-size: 0.85em; color: #444; font-weight: 600;">Beta (vs {config.BENCHMARK})</div>
+                        <div style="font-size: 0.85em; color: #444; font-weight: 600;">Beta (vs {config.METRICS_BENCHMARK})</div>
                         <div style="color: #222;">{portfolio_beta:.2f}</div>
                     </div>
                     <div>
@@ -736,7 +772,7 @@ def get_summary_sheet(history_df, category_values, sector_values, current_values
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px;">
                 <div><strong>Sharpe:</strong> Excess return per unit of total risk (volatility).</div>
                 <div><strong>Sortino:</strong> Excess return per unit of downside risk.</div>
-                <div><strong>Beta:</strong> Portfolio volatility relative to the market ({config.BENCHMARK}).</div>
+                <div><strong>Beta:</strong> Portfolio volatility relative to the market ({config.METRICS_BENCHMARK}).</div>
                 <div><strong>Alpha:</strong> Excess return over expected return given risk.</div>
                 <div><strong>VaR (95%):</strong> Max expected loss in 1 day with 95% confidence.</div>
                 <div><strong>Tracking Error:</strong> Deviation of portfolio returns from benchmark.</div>

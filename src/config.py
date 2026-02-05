@@ -17,7 +17,8 @@ TRADE_EXCEL_SHEET = os.getenv("TRADE_EXCEL_SHEET")
 
 # Configuration
 TRADE_HISTORY_FILE = os.path.join(INPUT_DIR, 'trade_history.csv')
-BENCHMARK = "SPY"
+METRICS_BENCHMARK = "SPY"
+PLOT_BENCHMARK = ["SPY","QQQ","VEU"]
 
 
 # Tickers without dividend tax
