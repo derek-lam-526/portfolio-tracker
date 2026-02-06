@@ -7,6 +7,7 @@ tempCodeRunnerFile.py
 # --- Jupyter Notebooks ---
 # Ignore the auto-save checkpoints created by Jupyter
 .ipynb_checkpoints/
+*.ipynb
 
 # --- Data Files ---
 # Ignore large datasets to keep the repository light
@@ -18,7 +19,8 @@ tempCodeRunnerFile.py
 *.pkl
 
 # --- Outputs ---
-*.html
+output/
+analysis_output/
 
 
 # --- Virtual Environments ---
