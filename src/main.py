@@ -2,6 +2,7 @@ import time
 import os
 import pandas as pd
 import webbrowser
+import argparse
 
 import config 
 import data_manager
@@ -13,7 +14,10 @@ pd.set_option('display.max_rows', 100)
 pd.set_option('display.float_format', '{:.2f}'.format)
 
 os.environ['TZ'] = 'America/New_York'
-time.tzset()
+try:
+    time.tzset()
+except AttributeError:
+    pass
     
 def get_trade_history() -> pd.DataFrame:
     data_manager.create_trade_csv()
@@ -94,4 +98,11 @@ def test():
     create_report(figs, df_alloc, df_trades)
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="Portfolio Tracker Runner")
+    parser.add_argument('--test', action='store_true', help='Run in test mode (no data update)')
+    args = parser.parse_args()
+
+    if args.test:
+        test()
+    else:
+        main()
