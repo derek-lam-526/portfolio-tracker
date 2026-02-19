@@ -1,4 +1,5 @@
 import time
+from datetime import datetime
 import os
 import pandas as pd
 import webbrowser
@@ -29,16 +30,22 @@ def get_portfolio_history(portfolio_tracker, update=True) -> pd.DataFrame:
     history_df = portfolio_tracker.process_portfolio()
     return history_df
 
-def create_report(figs, df_alloc, df_trades):
+def create_report(figs, df_alloc, df_trades, open_report = False):
     report_path = report_manager.create_report(figs, df_alloc, df_trades)
     print(f"✅ Report saved to: {report_path}")
-    is_open = webbrowser.open(report_path.as_uri())
-    if is_open:
-        print(f"✅ Opened report in browser")
-    else:
-        print(f"❌ Could not open browser automatically. Please open the file manually.")
+    if open_report:
+        is_open = webbrowser.open(report_path.as_uri())
+        if is_open:
+            print(f"✅ Opened report in browser")
+        else:
+            print(f"❌ Could not open browser automatically. Please open the file manually.")
 
 def main():
+    # Get trades from excel trade history
+    print("=" * 50)
+    print(f"Updating portfolio performance as of {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ET")
+    print("-" * 50)
+    df_trades = get_trade_history()
     # Get trades from excel trade history
     df_trades = get_trade_history()
     
@@ -65,6 +72,8 @@ def main():
     }
 
     create_report(figs, df_alloc, df_trades)
+
+    print("\n")
 
 def test():
     df_trades = get_trade_history()

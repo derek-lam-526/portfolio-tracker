@@ -582,8 +582,10 @@ def get_allocation(history_df, trades_df, portfolio_tracker, show=False):
     ), 1, 2)
 
     fig_alloc.update_layout(title_text=f"Portfolio Allocation (Total: ${total_portfolio_value:,.2f})", 
-                    height=600,
-                    showlegend=False)
+                    height=650,
+                    showlegend=True,
+                    uniformtext_minsize=10,
+                    uniformtext_mode='hide')
 
     # Display DataFrame
     df_alloc = df_allocation.copy()
