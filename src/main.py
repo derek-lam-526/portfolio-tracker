@@ -1,9 +1,11 @@
 import time
 from datetime import datetime
 import os
+import shutil
 import pandas as pd
 import webbrowser
 import argparse
+import paramiko
 
 import config 
 import data_manager
@@ -32,21 +34,49 @@ def get_portfolio_history(portfolio_tracker, update=True) -> pd.DataFrame:
 
 def create_report(figs, df_alloc, df_trades, open_report = False):
     report_path = report_manager.create_report(figs, df_alloc, df_trades)
-    print(f"✅ Report saved to: {report_path}")
+    latest_path = os.path.join(config.OUTPUT_DIR, "portfolio_report_latest.html")
+    print(f"✅ Saved report to: {report_path}")
+    print(f"✅ Updated main report: {latest_path}")
+    shutil.copy(report_path, latest_path)
     if open_report:
         is_open = webbrowser.open(report_path.as_uri())
         if is_open:
             print(f"✅ Opened report in browser")
         else:
             print(f"❌ Could not open browser automatically. Please open the file manually.")
+    return report_path, latest_path
+
+def upload_to_host(file_path):
+    print("📤 Starting upload to host...")
+
+    ssh = paramiko.SSHClient()
+    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    
+    private_key_path = os.path.expanduser("~/.ssh/id_ed25519")
+    print(config.HOST, config.USER, private_key_path)
+    try:
+        ssh.connect(
+            hostname=config.HOST, 
+            username=config.USER,
+            key_filename=private_key_path,
+            look_for_keys=True,
+            timeout=10
+        )
+
+        sftp = ssh.open_sftp()
+        sftp.put(file_path, config.REMOTE_REPORT_PATH)
+
+        sftp.close()
+        ssh.close()
+        print("✅ Success! Portfolio updated on host.")
+    
+    except Exception as e:
+        print(f"❌ SRCF Upload failed: {str(e)}")
 
 def main():
-    # Get trades from excel trade history
     print("=" * 50)
     print(f"Updating portfolio performance as of {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ET")
     print("-" * 50)
-    df_trades = get_trade_history()
-    # Get trades from excel trade history
     df_trades = get_trade_history()
     
     # Initialise tracker
@@ -71,7 +101,8 @@ def main():
         "summary": summary_sheet
     }
 
-    create_report(figs, df_alloc, df_trades)
+    _, latest_path = create_report(figs, df_alloc, df_trades)
+    upload_to_host(latest_path)
 
     print("\n")
 

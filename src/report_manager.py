@@ -91,5 +91,5 @@ def create_report(figs, df_alloc, df_trades, output_dir=config.OUTPUT_DIR):
     output_path = Path(output_dir) / f"portfolio_report_{current_date}.html"
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(html_output)
-    
+
     return output_path
