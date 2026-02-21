@@ -292,7 +292,7 @@ def get_wealth_plot(history_df, show = False):
         legend=dict(
             orientation="h",
             yanchor="bottom",
-            y=1.02, 
+            y=1.05, 
             xanchor="right",
             x=1
         ),
@@ -385,7 +385,7 @@ def get_returns_plot(history_df, show=False):
         legend=dict(
             orientation="h",
             yanchor="bottom",
-            y=1.02, 
+            y=1.05, 
             xanchor="right",
             x=1
         ),
@@ -585,10 +585,11 @@ def get_allocation(history_df, trades_df, portfolio_tracker, show=False):
     ), 1, 2)
     
     fig_alloc.update_layout(
-        title_text=f"Portfolio Allocation (Total: ${total_portfolio_value:,.2f}",
+        title_text=f"Portfolio Allocation (Total: ${total_portfolio_value:,.2f})",
         uniformtext_minsize=10, 
         uniformtext_mode='hide', # Hides labels on tiny slices so they don't overlap
-        margin=dict(t=40, b=40, l=20, r=20), # Reduce margins so the pie is larger
+        margin=dict(t=50, b=40, l=20, r=20), # Reduce margins so the pie is larger
+        showlegend=False,
         legend=dict(
             orientation="h",     # Horizontal legend
             yanchor="bottom",
@@ -648,7 +649,9 @@ def get_summary_sheet(history_df, category_values, sector_values, current_values
         total_val = current_equity  
         
         if 'category_values' in locals() and category_values:
-            asset_alloc_str = " | ".join([f"{k} {v/total_val:.1%}" for k, v in category_values.items()])
+            # Sort categories by value (x[1]) in descending order
+            sorted_categories = sorted(category_values.items(), key=lambda x: x[1], reverse=True)
+            asset_alloc_str = " | ".join([f"{k} {v/total_val:.1%}" for k, v in sorted_categories])
         else:
             asset_alloc_str = "Not Available"
         
