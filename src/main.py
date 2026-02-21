@@ -53,7 +53,7 @@ def upload_to_host(file_path):
     ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     
     private_key_path = os.path.expanduser("~/.ssh/id_ed25519")
-    print(config.HOST, config.USER, private_key_path)
+    
     try:
         ssh.connect(
             hostname=config.HOST, 
@@ -107,13 +107,14 @@ def main():
     print("\n")
 
 def test():
+    print("=" * 50)
+    print(f"Updating portfolio performance as of {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ET")
+    print("-" * 50)
     df_trades = get_trade_history()
-
-    # print(df_trades.tail())
     
     # Initialise tracker
     portfolio_tracker = tracker.PortfolioTracker(df_trades)
-    df_history = get_portfolio_history(portfolio_tracker, update=False) # Use cached data
+    df_history = get_portfolio_history(portfolio_tracker, update=False) 
 
     # Analysis and plots
     metrics = analyzer.calculate_performance_metrics(df_history)
@@ -121,8 +122,6 @@ def test():
     fig_drawdown = analyzer.get_drawdown_plot(df_history, show=False)
     fig_returns = analyzer.get_returns_plot(df_history, show=False)
     fig_alloc, df_alloc, category_values, sector_values, current_values, current_holdings = analyzer.get_allocation(df_history, df_trades, portfolio_tracker, show=False)
-
-    # print(df_alloc)
 
     # Summary sheet 
     summary_sheet = analyzer.get_summary_sheet(df_history, category_values, sector_values, current_values, current_holdings)
@@ -135,7 +134,9 @@ def test():
         "summary": summary_sheet
     }
 
-    create_report(figs, df_alloc, df_trades)
+    _, latest_path = create_report(figs, df_alloc, df_trades)
+
+    print("\n")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Portfolio Tracker Runner")

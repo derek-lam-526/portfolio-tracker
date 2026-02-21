@@ -222,7 +222,6 @@ def get_pnl_plot(history_df, show = False):
         xaxis_title='Date',
         yaxis_title='PnL (USD)',
         hovermode='x unified',
-        width=1400,  
         height=500
     )
 
@@ -569,7 +568,9 @@ def get_allocation(history_df, trades_df, portfolio_tracker, show=False):
         values=df_allocation['Value'], 
         name="Symbol",
         textinfo='label+percent',
-        hoverinfo='label+value+percent'
+        hoverinfo='label+value+percent',
+        insidetextorientation='radial',
+        textposition='inside', 
     ), 1, 1)
 
     # Pie 2: By Asset Class
@@ -578,14 +579,24 @@ def get_allocation(history_df, trades_df, portfolio_tracker, show=False):
         values=df_by_category['Value'], 
         name="Asset Class",
         textinfo='label+percent',
-        hoverinfo='label+value+percent'
+        hoverinfo='label+value+percent',
+        insidetextorientation='radial',
+        textposition='inside', 
     ), 1, 2)
-
-    fig_alloc.update_layout(title_text=f"Portfolio Allocation (Total: ${total_portfolio_value:,.2f})", 
-                    height=650,
-                    showlegend=True,
-                    uniformtext_minsize=10,
-                    uniformtext_mode='hide')
+    
+    fig_alloc.update_layout(
+        title_text=f"Portfolio Allocation (Total: ${total_portfolio_value:,.2f}",
+        uniformtext_minsize=10, 
+        uniformtext_mode='hide', # Hides labels on tiny slices so they don't overlap
+        margin=dict(t=40, b=40, l=20, r=20), # Reduce margins so the pie is larger
+        legend=dict(
+            orientation="h",     # Horizontal legend
+            yanchor="bottom",
+            y=-0.2,              # Push legend below the chart
+            xanchor="center",
+            x=0.5
+        )
+    )
 
     # Display DataFrame
     df_alloc = df_allocation.copy()
@@ -686,6 +697,56 @@ def get_summary_sheet(history_df, category_values, sector_values, current_values
                 return f'<span style="color: {color}; font-weight: bold;">{fmt}</span>'
         except:
             return f'<span style="color: #666; font-weight: bold;">N/A</span>'
+
+    def format_val(val, is_pct=False, show_hkd=True):
+        try:
+            color = "green" if val >= 0 else "red"
+            if is_pct:
+                fmt = f"{val:.2%}"
+                return f'<span style="color: {color}; font-weight: bold;">{fmt}</span>'
+            else:
+                hkd_text = f" <span style='font-size: 0.8em; color: #666; font-weight: normal;'>| HK$ {val * hkd_rate:,.2f}</span>" if show_hkd else ""
+                fmt = f"US$ {val:,.2f}{hkd_text}"
+                return f'<span style="color: {color}; font-weight: bold;">{fmt}</span>'
+        except:
+            return '<span style="color: #666; font-weight: bold;">N/A</span>'
+
+    # Return a dictionary of data instead of an HTML string
+    summary_data = {
+        "first_date": first_date.strftime('%Y-%m-%d'),
+        "current_date": datetime.now().strftime('%Y-%m-%d'),
+        "hkd_rate": f"{hkd_rate:.4f}",
+        "current_equity_usd": f"{current_equity:,.2f}",
+        "current_equity_hkd": f"{current_equity * hkd_rate:,.2f}",
+        "current_market_value_usd": f"{current_market_value:,.2f}",
+        "current_market_value_hkd": f"{current_market_value * hkd_rate:,.2f}",
+        "current_cash_usd": f"{current_cash:,.2f}",
+        "current_cash_hkd": f"{current_cash * hkd_rate:,.2f}",
+        "total_return_abs_html": format_val(total_return_abs, show_hkd=True),
+        "total_return_pct_html": format_val(total_return, is_pct=True),
+        "max_return_html": format_val(max_return, show_hkd=True),
+        "total_cum_return_html": format_val(total_cum_return, is_pct=True),
+        "benchmark_total_return": f"{benchmark_total_return:.2%}",
+        "alpha_html": format_val(alpha, is_pct=True),
+        "volatility": f"{volatility:.2%}",
+        "sharpe_ratio": f"{sharpe_ratio:.2f}",
+        "benchmark_sharpe_ratio": f"{benchmark_sharpe_ratio:.2f}",
+        "sortino_ratio": f"{sortino_ratio:.2f}",
+        "benchmark_sortino_ratio": f"{benchmark_sortino_ratio:.2f}",
+        "portfolio_beta": f"{portfolio_beta:.2f}",
+        "tracking_error": f"{tracking_error:.2%}",
+        "max_drawdown": f"{max_drawdown:.2%}",
+        "var_95_percent_return": f"{var_95_percent_return:.2%}",
+        "down_capture": f"{down_capture:.2f}",
+        "up_capture": f"{up_capture:.2f}",
+        "asset_alloc_str": asset_alloc_str,
+        "sector_alloc_str": sector_alloc_str,
+        "top_10_pct": f"{top_10_pct:.1%}",
+        "num_holdings": num_holdings,
+        "benchmark_name": config.METRICS_BENCHMARK
+    }
+
+    return summary_data
 
     summary_sheet = f"""
     <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 1000px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden; background-color: #ffffff;">

@@ -1,110 +1,217 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Portfolio Analysis Report</title>
     <meta charset="utf-8">
+    <title>Portfolio Analysis Report</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     
     <link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/1.13.4/css/jquery.dataTables.min.css">
     <link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/buttons/2.3.6/css/buttons.dataTables.min.css">
     <link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/responsive/2.4.1/css/responsive.dataTables.min.css">
     
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+
     <style>
+        :root {
+            --primary-color: #3498db;
+            --bg-color: #f8f9fa;
+            --border-color: #e0e0e0;
+            --text-main: #222;
+            --text-muted: #666;
+        }
+
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            margin: 30px;
-            background-color: #f8f9fa;
+            margin: 0;
+            padding: 20px;
+            background-color: var(--bg-color);
+            color: var(--text-main);
         }
+
         .container {
-            max-width: 1600px;
+            max-width: 1400px;
             margin: 0 auto;
             background-color: white;
-            padding: 30px;
-            border-radius: 10px;
-            box-shadow: 0 0 20px rgba(0,0,0,0.1);
-        }
-        .section {
-            margin-bottom: 40px;
             padding: 25px;
-            border: 1px solid #e0e0e0;
-            border-radius: 8px;
-            background-color: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.05);
         }
-        h1 {
-            color: #2c3e50;
-            border-bottom: 3px solid #3498db;
-            padding-bottom: 15px;
-            margin-bottom: 30px;
-        }
-        h2 {
-            color: #34495e;
-            border-bottom: 2px solid #ecf0f1;
+
+        /* Tabs Styling */
+        .tabs { 
+            margin-bottom: 20px; 
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+            border-bottom: 2px solid var(--border-color);
             padding-bottom: 10px;
-            margin-bottom: 20px;
-        }
-        .plot-container {
-            margin: 25px 0;
-            padding: 15px;
-            background-color: #f8f9fa;
-            border-radius: 5px;
-            width: 100%;
-            box-sizing: border-box;
-        }
-        .summary {
-            background-color: #f1f8ff;
-            padding: 20px;
-            border-radius: 8px;
-            border-left: 5px solid #3498db;
-        }
-        .dataTables_wrapper {
-            margin-top: 20px;
-        }
-        .export-buttons {
-            margin: 10px 0;
-        }
-        .tabs {
-            margin-bottom: 20px;
         }
         .tab-button {
-            padding: 10px 20px;
-            background-color: #ecf0f1;
-            border: none;
-            border-radius: 5px 5px 0 0;
-            margin-right: 5px;
+            padding: 12px 24px;
+            background-color: var(--bg-color);
+            border: 1px solid var(--border-color);
+            border-radius: 5px;
             cursor: pointer;
+            font-size: 1em;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+        .tab-button:hover {
+            background-color: #e9ecef;
         }
         .tab-button.active {
-            background-color: #3498db;
+            background-color: var(--primary-color);
             color: white;
+            border-color: var(--primary-color);
         }
         .tab-content {
             display: none;
-            padding: 20px;
-            border: 1px solid #ddd;
-            border-radius: 0 5px 5px 5px;
+            padding: 20px 0;
+            animation: fadeIn 0.3s ease-in-out;
         }
-        .tab-content.active {
-            display: block;
+        .tab-content.active { 
+            display: block; 
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        /* Plot Containers */
+        .section {
+            margin-bottom: 40px;
+            padding: 20px;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            background-color: white;
+        }
+        .plot-container {
+            width: 100%;
+            min-height: 400px; /* Ensure space before plot loads */
+        }
+        
+        /* Summary Sheet Styles */
+        .summary-card {
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .summary-header {
+            padding: 20px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background-color: #fafafa;
+        }
+        .summary-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+        }
+        .summary-column {
+            padding: 20px;
+        }
+        .summary-column:first-child {
+            border-right: 1px solid var(--border-color);
+        }
+        .metric-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+        .metric-label { font-size: 0.85em; color: var(--text-muted); font-weight: 600; text-transform: uppercase; }
+        .metric-value { font-weight: 500; font-size: 1.1em; }
+
+        /* DataTables Customizations */
+        table.dataTable { width: 100% !important; }
+        
+        /* Mobile Responsiveness */
+        @media (max-width: 900px) {
+            .summary-grid { grid-template-columns: 1fr; }
+            .summary-column:first-child { border-right: none; border-bottom: 1px solid var(--border-color); }
+        }
+        
+        @media (max-width: 600px) {
+            body { padding: 10px; }
+            .container { padding: 15px; }
+            .tabs { flex-direction: column; border-bottom: none; }
+            .tab-button { width: 100%; margin-bottom: 5px; text-align: center; }
+            .summary-header { flex-direction: column; align-items: flex-start; gap: 10px; }
+            .metric-grid { grid-template-columns: 1fr; gap: 10px; }
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>📊 Portfolio Analysis Report</h1>
-        <p><strong>Generated:</strong> {{ current_time }}</p>
+        <h1 style="margin-top: 0; color: #2c3e50;">📊 Portfolio Analysis Report</h1>
+        <p style="color: var(--text-muted);"><strong>Generated:</strong> {{ current_time }}</p>
         
         <div class="tabs">
-            <button class="tab-button active" onclick="openTab('tab1')">📝 Summary</button>
-            <button class="tab-button" onclick="openTab('tab2')">📈 Charts</button>
-            <button class="tab-button" onclick="openTab('tab3')">📋 Allocation Data</button>
-            <button class="tab-button" onclick="openTab('tab4')">📋 Trade History</button>
+            <button class="tab-button active" onclick="openTab(event, 'tab1')">📝 Summary</button>
+            <button class="tab-button" onclick="openTab(event, 'tab2')">📈 Charts</button>
+            <button class="tab-button" onclick="openTab(event, 'tab3')">📋 Allocation Data</button>
+            <button class="tab-button" onclick="openTab(event, 'tab4')">📋 Trade History</button>
         </div>
 
         <div id="tab1" class="tab-content active">
-            <div class="section summary">
-                <h2>📝 Summary Sheet</h2>
-                <div id="summary-content">
-                    {{ summary_content | safe }}
+            <div class="summary-card">
+                <div class="summary-header">
+                    <h2 style="margin: 0;">PORTFOLIO SUMMARY</h2>
+                    <div style="text-align: right; color: var(--text-muted); font-size: 0.9em;">
+                        <div>From {{ summary.first_date }}</div>
+                        <div>As of {{ summary.current_date }}</div>
+                        <div>USD/HKD: {{ summary.hkd_rate }}</div>
+                    </div>
+                </div>
+
+                <div class="summary-grid" style="border-bottom: 1px solid var(--border-color);">
+                    <div class="summary-column">
+                        <h3 style="margin-top: 0; border-bottom: 2px solid #007bff; padding-bottom: 5px; display: inline-block;">VALUE & RETURN</h3>
+                        <div style="margin-bottom: 20px;">
+                            <div class="metric-label">Total Portfolio Value</div>
+                            <div style="font-size: 1.5em; font-weight: bold; color: #000;">US$ {{ summary.current_equity_usd }} <span style="font-size: 0.6em; color: var(--text-muted); font-weight: normal;">| HK$ {{ summary.current_equity_hkd }}</span></div>
+                        </div>
+
+                        <div class="metric-grid">
+                            <div><div class="metric-label">Market Value</div><div class="metric-value">US$ {{ summary.current_market_value_usd }}</div></div>
+                            <div><div class="metric-label">Cash</div><div class="metric-value">US$ {{ summary.current_cash_usd }}</div></div>
+                            <div><div class="metric-label">Total Return ($)</div><div class="metric-value">{{ summary.total_return_abs_html | safe }}</div></div>
+                            <div><div class="metric-label">Total Return (%)</div><div class="metric-value">{{ summary.total_return_pct_html | safe }}</div></div>
+                            <div><div class="metric-label">Max Hist. Return</div><div class="metric-value">{{ summary.max_return_html | safe }}</div></div>
+                            <div><div class="metric-label">Total Cum. Return</div><div class="metric-value">{{ summary.total_cum_return_html | safe }}</div></div>
+                            <div><div class="metric-label">Benchmark ({{ summary.benchmark_name }})</div><div class="metric-value">{{ summary.benchmark_total_return }}</div></div>
+                            <div><div class="metric-label">Alpha (ann.)</div><div class="metric-value">{{ summary.alpha_html | safe }}</div></div>
+                        </div>
+                    </div>
+
+                    <div class="summary-column">
+                        <h3 style="margin-top: 0; border-bottom: 2px solid #dc3545; padding-bottom: 5px; display: inline-block;">RISK METRICS</h3>
+                        <div style="margin-bottom: 20px;">
+                            <div class="metric-label">Annualized Volatility</div>
+                            <div style="font-size: 1.5em; font-weight: bold; color: #000;">{{ summary.volatility }}</div>
+                        </div>
+
+                        <div class="metric-grid">
+                            <div><div class="metric-label">Sharpe Ratio</div><div class="metric-value">{{ summary.sharpe_ratio }} <span style="font-size: 0.8em; color: var(--text-muted);">| {{ summary.benchmark_sharpe_ratio }}</span></div></div>
+                            <div><div class="metric-label">Sortino Ratio</div><div class="metric-value">{{ summary.sortino_ratio }} <span style="font-size: 0.8em; color: var(--text-muted);">| {{ summary.benchmark_sortino_ratio }}</span></div></div>
+                            <div><div class="metric-label">Beta</div><div class="metric-value">{{ summary.portfolio_beta }}</div></div>
+                            <div><div class="metric-label">Tracking Error</div><div class="metric-value">{{ summary.tracking_error }}</div></div>
+                            <div><div class="metric-label">Max Drawdown</div><div class="metric-value" style="color: #dc3545;">{{ summary.max_drawdown }}</div></div>
+                            <div><div class="metric-label">VaR (95% 1-day)</div><div class="metric-value" style="color: #dc3545;">{{ summary.var_95_percent_return }}</div></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="padding: 20px;">
+                    <h3 style="margin-top: 0; border-bottom: 2px solid #28a745; padding-bottom: 5px; display: inline-block;">COMPOSITION</h3>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-top: 10px;">
+                        <div><div class="metric-label">Asset Allocation</div><div class="metric-value">{{ summary.asset_alloc_str }}</div></div>
+                        <div><div class="metric-label">Top 3 Sectors</div><div class="metric-value">{{ summary.sector_alloc_str }}</div></div>
+                        <div><div class="metric-label">Top 10 Concentration</div><div class="metric-value">{{ summary.top_10_pct }}</div></div>
+                        <div><div class="metric-label">Total Holdings</div><div class="metric-value">{{ summary.num_holdings }}</div></div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -112,193 +219,107 @@
         <div id="tab2" class="tab-content">
             <div class="section">
                 <h2>📈 Total P&L Over Time</h2>
-                <div class="plot-container">
-                    {{ wealth_html | safe }}
-                    {{ drawdown_html | safe }}
-                </div>
+                <div class="plot-container">{{ wealth_html | safe }}</div>
+                <div class="plot-container" style="margin-top: 20px;">{{ drawdown_html | safe }}</div>
             </div>
             
             <div class="section">
                 <h2>📊 Returns Analysis</h2>
-                <div class="plot-container">
-                    {{ returns_html | safe }}
-                </div>
+                <div class="plot-container">{{ returns_html | safe }}</div>
             </div>
             
             <div class="section">
                 <h2>🥧 Portfolio Allocation</h2>
-                <div class="plot-container">
-                    {{ alloc_html | safe }}
-                </div>
+                <div class="plot-container">{{ alloc_html | safe }}</div>
             </div>
         </div>
         
         <div id="tab3" class="tab-content">
             <div class="section">
                 <h2>Allocation Data</h2>
-                <div class="export-buttons"></div>
-                {{ alloc_table_html | safe }}
-                
-                <div style="margin-top: 20px; padding: 15px; background-color: #f8f9fa; border-radius: 5px;">
-                    <h4>💡 Tips for using this table:</h4>
-                    <ul>
-                        <li><strong>Search:</strong> Type in the search box to filter all columns</li>
-                        <li><strong>Sort:</strong> Click any column header to sort (click again for reverse order)</li>
-                        <li><strong>Show entries:</strong> Use the dropdown to change number of rows shown</li>
-                        <li><strong>Export:</strong> Use buttons above to export as CSV, Excel, or PDF</li>
-                        <li><strong>Column visibility:</strong> Use column visibility button to hide/show columns</li>
-                    </ul>
+                <div style="overflow-x: auto; width: 100%;">
+                    {{ alloc_table_html | safe }}
                 </div>
             </div>
-
         </div>
 
         <div id="tab4" class="tab-content">
             <div class="section">
                 <h2>Trade History</h2>
-                <div class="export-buttons"></div>
-                {{ trades_table_html | safe }}
-
-                <div style="margin-top: 20px; padding: 15px; background-color: #f8f9fa; border-radius: 5px;">
-                    <h4>💡 Tips for using this table:</h4>
-                    <ul>
-                        <li><strong>Search:</strong> Type in the search box to filter all columns</li>
-                        <li><strong>Sort:</strong> Click any column header to sort (click again for reverse order)</li>
-                        <li><strong>Show entries:</strong> Use the dropdown to change number of rows shown</li>
-                        <li><strong>Export:</strong> Use buttons above to export as CSV, Excel, or PDF</li>
-                        <li><strong>Column visibility:</strong> Use column visibility button to hide/show columns</li>
-                    </ul>
+                <div style="overflow-x: auto; width: 100%;">
+                    {{ trades_table_html | safe }}
                 </div>
             </div>
         </div>
-        
     </div>
-    
+
+    <script type="application/json" id="wealth-data">{{ wealth_json | safe }}</script>
+    <script type="application/json" id="drawdown-data">{{ drawdown_json | safe }}</script>
+    <script type="application/json" id="returns-data">{{ returns_json | safe }}</script>
+    <script type="application/json" id="alloc-data">{{ alloc_json | safe }}</script>
+
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-    <script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/1.13.4/js/jquery.dataTables.min.js"></script>
-    <script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/buttons/2.3.6/js/dataTables.buttons.min.js"></script>
-    <script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/buttons/2.3.6/js/buttons.html5.min.js"></script>
-    <script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/buttons/2.3.6/js/buttons.print.min.js"></script>
-    <script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/buttons/2.3.6/js/buttons.colVis.min.js"></script>
-    <script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/responsive/2.4.1/js/dataTables.responsive.min.js"></script>
-    <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.36/pdfmake.min.js"></script>
-    <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.36/vfs_fonts.js"></script>
-    
+    <script src="https://cdn.datatables.net/1.13.4/js/jquery.dataTables.min.js"></script>
+    <script src="https://cdn.datatables.net/responsive/2.4.1/js/dataTables.responsive.min.js"></script>
+
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.4/js/jquery.dataTables.min.js"></script>
+    <script src="https://cdn.datatables.net/responsive/2.4.1/js/dataTables.responsive.min.js"></script>
+
     <script>
-        // Tab switching function
-        function openTab(tabName) {
+        // 1. Initialize DataTables
+        $(document).ready(function() {
+            if ($('#alloc_table').length) {
+                $('#alloc_table').DataTable({ responsive: true, pageLength: 25 });
+            }
+            if ($('#trades_table').length) {
+                $('#trades_table').DataTable({ 
+                    responsive: true, 
+                    pageLength: 25,
+                    order: [[0, "desc"]] 
+                });
+            }
+        });
+
+        // 2. Tab Switching Logic
+        function openTab(evt, tabName) {
             // Hide all tab contents
-            document.querySelectorAll('.tab-content').forEach(tab => {
-                tab.classList.remove('active');
-            });
+            const tabcontent = document.getElementsByClassName("tab-content");
+            for (let i = 0; i < tabcontent.length; i++) {
+                tabcontent[i].classList.remove("active");
+            }
             
             // Remove active class from all buttons
-            document.querySelectorAll('.tab-button').forEach(button => {
-                button.classList.remove('active');
-            });
+            const tablinks = document.getElementsByClassName("tab-button");
+            for (let i = 0; i < tablinks.length; i++) {
+                tablinks[i].classList.remove("active");
+            }
             
-            // Show the selected tab
-            document.getElementById(tabName).classList.add('active');
-            
-            // Add active class to clicked button
-            event.currentTarget.classList.add('active');
+            // Show the current tab
+            document.getElementById(tabName).classList.add("active");
+            evt.currentTarget.classList.add("active");
 
-            // When we switch to the charts tab, we must manually trigger a resize event
-            if (tabName === 'tab2') {
-                setTimeout(function() {
-                    window.dispatchEvent(new Event('resize'));
-                }, 50); 
-            }
-            
-            // Recalculate table columns when tab is opened
-            if (tabName === 'tab3' && $.fn.DataTable.isDataTable('#alloc_table')) {
-                $('#alloc_table').DataTable().columns.adjust().responsive.recalc();
-            }
-            if (tabName === 'tab4' && $.fn.DataTable.isDataTable('#trades_table')) {
-                $('#trades_table').DataTable().columns.adjust().responsive.recalc();
-            }
+            // CRITICAL FIX FOR PIE CHART LABELS:
+            // Wait slightly longer for the DOM to register the 'display: block'
+            setTimeout(() => {
+                // 1. Trigger general window resize
+                window.dispatchEvent(new Event('resize'));
+                
+                // 2. Explicitly force Plotly to recalculate the bounding boxes for Pie labels
+                const plotlyDivs = document.querySelectorAll('.js-plotly-plot');
+                plotlyDivs.forEach(div => {
+                    if (typeof Plotly !== 'undefined') {
+                        // This forces a hard redraw of the labels and lines
+                        Plotly.Plots.resize(div); 
+                    }
+                });
+
+                // 3. Resize DataTables
+                if ($.fn.DataTable) {
+                    $('.dataTable').DataTable().columns.adjust().responsive.recalc();
+                }
+            }, 150); // Increased to 150ms to ensure the tab is fully visible first
         }
-        
-        // Initialize DataTables when page loads
-        $(document).ready(function() {
-            
-            // 1. Initialize Allocation Table
-            var allocTable = $('#alloc_table').DataTable({
-                dom: 'Bfrtip',
-                buttons: [ 'copy', 'csv', 'excel', 'pdf', 'print', 'colvis' ],
-                pageLength: 25,
-                lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, "All"]],
-                responsive: true,
-                order: [], 
-                initComplete: function() {
-                    // Add custom CSS to buttons container
-                    $('#alloc_table_wrapper .dt-buttons').addClass('export-buttons');
-                    // Calculate stats for this table
-                    calculateStatistics(this.api());
-                }
-            });
-
-            // 2. Initialize Trades Table
-            var tradesTable = $('#trades_table').DataTable({
-                dom: 'Bfrtip',
-                buttons: [ 'copy', 'csv', 'excel', 'pdf', 'print', 'colvis' ],
-                pageLength: 25,
-                lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, "All"]],
-                responsive: true,
-                order: [],
-                initComplete: function() {
-                        $('#trades_table_wrapper .dt-buttons').addClass('export-buttons');
-                }
-            });
-            
-            // Function to calculate statistics
-            function calculateStatistics(api) {
-                var numericColumns = [];
-                
-                api.columns().every(function() {
-                    var column = this;
-                    var columnData = column.data().toArray();
-                    var isNumeric = columnData.some(function(cell) {
-                        return !isNaN(parseFloat(cell)) && isFinite(cell);
-                    });
-                    
-                    if (isNumeric && columnData.length > 0) {
-                        numericColumns.push({
-                            index: column.index(),
-                            header: $(column.header()).text(),
-                            data: columnData.map(Number).filter(n => !isNaN(n))
-                        });
-                    }
-                });
-                
-                var statsHtml = '';
-                numericColumns.forEach(function(col) {
-                    if (col.data.length > 0) {
-                        var sum = col.data.reduce((a, b) => a + b, 0);
-                        var avg = sum / col.data.length;
-                        var max = Math.max(...col.data);
-                        var min = Math.min(...col.data);
-                        
-                        statsHtml += `
-                        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 15px; border-radius: 8px;">
-                            <h4 style="margin-top: 0; color: white;">${col.header}</h4>
-                            <p style="margin: 5px 0;"><strong>Avg:</strong> ${avg.toFixed(2)}</p>
-                            <p style="margin: 5px 0;"><strong>Min:</strong> ${min.toFixed(2)}</p>
-                            <p style="margin: 5px 0;"><strong>Max:</strong> ${max.toFixed(2)}</p>
-                            <p style="margin: 5px 0;"><strong>Count:</strong> ${col.data.length}</p>
-                        </div>
-                        `;
-                    }
-                });
-                
-                if (statsHtml) {
-                    $('#stats-container').html(statsHtml);
-                }
-            }
-            
-            // Add tooltips to table headers
-            $('table.dataTable thead th').attr('title', 'Click to sort');
-        });
     </script>
 </body>
 </html>
