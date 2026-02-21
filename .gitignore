@@ -21,6 +21,7 @@ tempCodeRunnerFile.py
 # --- Outputs ---
 output/
 analysis_output/
+*.log
 
 
 # --- Virtual Environments ---
