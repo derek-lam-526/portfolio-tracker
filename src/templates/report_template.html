@@ -253,15 +253,6 @@
         </div>
     </div>
 
-    <script type="application/json" id="wealth-data">{{ wealth_json | safe }}</script>
-    <script type="application/json" id="drawdown-data">{{ drawdown_json | safe }}</script>
-    <script type="application/json" id="returns-data">{{ returns_json | safe }}</script>
-    <script type="application/json" id="alloc-data">{{ alloc_json | safe }}</script>
-
-    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-    <script src="https://cdn.datatables.net/1.13.4/js/jquery.dataTables.min.js"></script>
-    <script src="https://cdn.datatables.net/responsive/2.4.1/js/dataTables.responsive.min.js"></script>
-
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://cdn.datatables.net/1.13.4/js/jquery.dataTables.min.js"></script>
     <script src="https://cdn.datatables.net/responsive/2.4.1/js/dataTables.responsive.min.js"></script>
@@ -299,7 +290,6 @@
             document.getElementById(tabName).classList.add("active");
             evt.currentTarget.classList.add("active");
 
-            // CRITICAL FIX FOR PIE CHART LABELS:
             // Wait slightly longer for the DOM to register the 'display: block'
             setTimeout(() => {
                 // 1. Trigger general window resize
