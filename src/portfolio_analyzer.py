@@ -411,46 +411,76 @@ def get_returns_plot(history_df, show=False):
     return fig
 
 def get_drawdown_plot(history_df, show=False):
-    rolling_max = history_df['Total_Equity'].cummax()
-    drawdowns = (history_df['Total_Equity'] / rolling_max) - 1
-
-    fig = go.Figure()
-
-    fig.add_trace(go.Scatter(
-        x=drawdowns.index, 
-        y=drawdowns * 100,
-        mode='lines',
-        name='Drawdown',
-        line=dict(color='#D32F2F', width=1), # Red Line
-        fill='tozeroy',
-        fillcolor='rgba(211, 47, 47, 0.2)', # Red Fill
-        hovertemplate='%{y:.2f}%'
-    ))
-
-    # 3. Layout
-    fig.update_layout(
-        title_text="Underwater Plot (Drawdown from Peak)",
-        template="plotly_white",
-        height=400,
-        showlegend=False,
-        hovermode="x unified",
-        yaxis=dict(title='Drawdown (%)')
-    )
+    # Calculate Cumulative Return peak (Running Max)
+    # We use (1 + Daily_Return).cumprod() to ensure it's time-weighted/percentage-based
+    cum_returns = (1 + history_df['Daily_Return']).cumprod()
+    running_max = cum_returns.cummax()
     
-    # Add 0% Line
-    fig.add_hline(y=0, line_dash="solid", line_color="black", line_width=1)
+    # Calculate Drawdown as a percentage: (Current / Peak) - 1
+    drawdown_pct = (cum_returns / running_max) - 1
 
-    # Clean X-Axis (Hide weekends)
-    fig.update_xaxes(
-        rangebreaks=[dict(bounds=["sat", "mon"])],
-        showgrid=True, gridcolor='#E0E0E0'
+    fig_drawdown = make_subplots(
+        rows=2, cols=1, 
+        shared_xaxes=True, 
+        vertical_spacing=0.1,
+        subplot_titles=("Cumulative Return vs. Running High", "Drawdown (%)"),
+        row_heights=[0.6, 0.4]
     )
-    fig.update_yaxes(showgrid=True, gridcolor='#E0E0E0')
+
+    # --- PLOT 1: Cumulative vs Running Max ---
+    # Running Max Line
+    fig_drawdown.add_trace(go.Scatter(
+        x=history_df.index, 
+        y=(running_max - 1) * 100,  # <-- Adjusted here
+        mode='lines',
+        name='Peak Return',
+        line=dict(color='rgba(0, 0, 0, 0.3)', width=1, dash='dot'),
+        hovertemplate='Peak: %{y:.2f}%'
+    ), row=1, col=1)
+
+    # Cumulative Return Line
+    fig_drawdown.add_trace(go.Scatter(
+        x=history_df.index, 
+        y=(cum_returns - 1) * 100,  # <-- Adjusted here
+        mode='lines',
+        name='Cumulative Return',
+        line=dict(color='#0277BD', width=2),
+        fill='tonexty',
+        fillcolor='rgba(211, 47, 47, 0.2)',
+        hovertemplate='Return: %{y:.2f}%'
+    ), row=1, col=1)
+
+    # --- PLOT 2: Percentage Drawdown (Underwater) ---
+    fig_drawdown.add_trace(go.Scatter(
+        x=history_df.index, 
+        y=drawdown_pct * 100,
+        mode='lines',
+        name='Drawdown %',
+        line=dict(color='#D32F2F', width=1.5),
+        fill='tozeroy',
+        fillcolor='rgba(211, 47, 47, 0.3)',
+        hovertemplate='Drawdown: %{y:.2f}%'
+    ), row=2, col=1)
+
+    # Layout Adjustments
+    fig_drawdown.update_layout(
+        template="plotly_white",
+        height=600,
+        showlegend=True,
+        hovermode="x unified",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    )
+
+    fig_drawdown.update_yaxes(title_text="Return %", row=1, col=1)
+    fig_drawdown.update_yaxes(title_text="Drawdown %", row=2, col=1)
+    
+    # Hide weekends
+    fig_drawdown.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
 
     if show:
-        fig.show()
+        fig_drawdown.show()
         
-    return fig
+    return fig_drawdown
 
 def get_allocation(history_df, trades_df, portfolio_tracker, show=False):
     last_holdings = {}
@@ -608,6 +638,105 @@ def get_allocation(history_df, trades_df, portfolio_tracker, show=False):
         fig_alloc.show()
 
     return fig_alloc, df_alloc, category_values, sector_values, current_values, current_holdings
+
+def get_quant_plots(history_df, show=False, windows=[21, 63]):
+    # Fetch benchmark data to align with portfolio history
+    start_date = history_df.index.min().strftime('%Y-%m-%d')
+    end_date = (history_df.index.max() + pd.Timedelta(days=1)).strftime('%Y-%m-%d')
+    bench_ticker = config.METRICS_BENCHMARK
+    
+    # Download benchmark data
+    bench_data = yf.download(bench_ticker, start=start_date, end=end_date, progress=False, auto_adjust=True)
+    bench_returns = bench_data['Close'].pct_change().fillna(0)
+    
+    # Handle multi-index columns if yfinance returns them
+    if isinstance(bench_returns, pd.DataFrame):
+        bench_returns = bench_returns.iloc[:, 0]
+        
+    # Align dates between portfolio and benchmark
+    df = pd.DataFrame({
+        'Port_Return': history_df['Daily_Return'],
+        'Bench_Return': bench_returns
+    }).dropna()
+    
+    fig = make_subplots(
+        rows=4, cols=1, 
+        shared_xaxes=True,
+        vertical_spacing=0.06,
+        subplot_titles=("Rolling Volatility (Annualized)", 
+                        f"Rolling Beta (vs {bench_ticker})", 
+                        "Rolling Alpha (Annualized)",
+                        "Rolling Sharpe Ratio")
+    )
+    
+    # Define 8 colors in total (4 for Portfolio, 4 for Benchmark)
+    # Using distinct complementary/contrasting palettes
+    port_colors = ['#0277BD', '#2E7D32', '#8E24AA', '#F9A825'] # Blue, Green, Purple, Yellow
+    bench_colors = ['#D32F2F', "#E619C0", '#795548', '#546E7A'] # Red, Orange, Brown, Blue-Grey
+    
+    for i, w in enumerate(windows):
+        # Determine colors for this window using modulo 4
+        p_color = port_colors[i % 4]
+        b_color = bench_colors[i % 4]
+
+        # 1. Rolling Volatility (Annualized)
+        rolling_vol = df['Port_Return'].rolling(window=w).std() * np.sqrt(252)
+        bench_vol = df['Bench_Return'].rolling(window=w).std() * np.sqrt(252)
+        
+        # 2. Rolling Beta
+        rolling_cov = df['Port_Return'].rolling(window=w).cov(df['Bench_Return'])
+        rolling_var = df['Bench_Return'].rolling(window=w).var()
+        rolling_beta = rolling_cov / rolling_var
+        
+        # 3. Rolling Alpha (Annualized approximation)
+        rolling_alpha_daily = df['Port_Return'].rolling(window=w).mean() - (rolling_beta * df['Bench_Return'].rolling(window=w).mean())
+        rolling_alpha = rolling_alpha_daily * 252 
+        
+        # 4. Rolling Sharpe Ratio (Annualized, assuming Rf = 0)
+        rolling_sharpe = (df['Port_Return'].rolling(window=w).mean() / df['Port_Return'].rolling(window=w).std()) * np.sqrt(252)
+        bench_sharpe = (df['Bench_Return'].rolling(window=w).mean() / df['Bench_Return'].rolling(window=w).std()) * np.sqrt(252)
+        
+        # --- Add Traces ---
+        
+        # Plot Volatility
+        fig.add_trace(go.Scatter(x=df.index, y=rolling_vol*100, mode='lines', name=f'Port Vol ({w}d)', line=dict(color=p_color)), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=bench_vol*100, mode='lines', name=f'{bench_ticker} Vol ({w}d)', line=dict(color=b_color, dash='dot', width=1)), row=1, col=1)
+        
+        # Plot Beta (Uses Portfolio Color)
+        fig.add_trace(go.Scatter(x=df.index, y=rolling_beta, mode='lines', name=f'Beta ({w}d)', line=dict(color=p_color)), row=2, col=1)
+        
+        # Plot Alpha (Uses Portfolio Color)
+        fig.add_trace(go.Scatter(x=df.index, y=rolling_alpha*100, mode='lines', name=f'Alpha ({w}d)', line=dict(color=p_color)), row=3, col=1)
+        
+        # Plot Sharpe
+        fig.add_trace(go.Scatter(x=df.index, y=rolling_sharpe, mode='lines', name=f'Port Sharpe ({w}d)', line=dict(color=p_color)), row=4, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=bench_sharpe, mode='lines', name=f'{bench_ticker} Sharpe ({w}d)', line=dict(color=b_color, dash='dot', width=1)), row=4, col=1)
+    
+    # Reference Lines 
+    fig.add_hline(y=1, line_dash="dash", line_color="black", opacity=0.5, row=2, col=1) # Beta of 1
+    fig.add_hline(y=0, line_dash="dash", line_color="black", opacity=0.5, row=3, col=1) # Zero Alpha
+    fig.add_hline(y=1, line_dash="dash", line_color="black", opacity=0.5, row=4, col=1) # Sharpe of 1.0
+    
+    fig.update_layout(
+        height=1000, 
+        template="plotly_white", 
+        showlegend=False, 
+        hovermode="x unified",
+        margin=dict(t=50, b=50, l=50, r=50)
+    )
+    
+    fig.update_yaxes(title_text="Volatility (%)", row=1, col=1)
+    fig.update_yaxes(title_text="Beta", row=2, col=1)
+    fig.update_yaxes(title_text="Alpha (%)", row=3, col=1)
+    fig.update_yaxes(title_text="Sharpe", row=4, col=1)
+    
+    # Hide weekends
+    fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
+    
+    if show:
+        fig.show()
+        
+    return fig
 
 def get_summary_sheet(history_df, category_values, sector_values, current_values, current_holdings):
     # Fetch HKD Rate

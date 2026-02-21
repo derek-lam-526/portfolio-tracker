@@ -210,13 +210,15 @@
         </div>
         
         <div class="tabs">
-            <button class="tab-button active" onclick="openTab(event, 'tab1')">Summary Details</button>
-            <button class="tab-button" onclick="openTab(event, 'tab2')">Interactive Charts</button>
-            <button class="tab-button" onclick="openTab(event, 'tab3')">Current Allocation</button>
-            <button class="tab-button" onclick="openTab(event, 'tab4')">Trade History</button>
+            <button class="tab-button active" onclick="openTab(event, 'Summary')">Summary</button>
+            <button class="tab-button" onclick="openTab(event, 'Charts')">Charts</button>
+            <button class="tab-button" onclick="openTab(event, 'Quant')">Quantitative Analysis</button> 
+            <button class="tab-button" onclick="openTab(event, 'Allocation')">Current Allocation</button>
+            <button class="tab-button" onclick="openTab(event, 'Trades')">Trade History</button>
+            
         </div>
 
-        <div id="tab1" class="tab-content active">
+        <div id="Summary" class="tab-content active">
             <div class="responsive-2-col">
                 <div class="content-card" style="margin: 0;">
                     <h3>Performance Breakdown</h3>
@@ -249,7 +251,7 @@
             </div>
         </div>
 
-        <div id="tab2" class="tab-content">
+        <div id="Charts" class="tab-content">
             <div class="content-card">
                 <h3>Total Profit/Loss Over Time</h3>
                 <div class="plot-container">{{ wealth_html | safe }}</div>
@@ -269,8 +271,17 @@
                 </div>
             </div>
         </div>
+
+        <div id="Quant" class="tab-content">
+            <div class="card">
+                <h2 class="card-title">Quantitative Analysis</h2>
+                <div class="chart-container">
+                    {{ quant_html | safe }}
+                </div>
+            </div>
+        </div>
         
-        <div id="tab3" class="tab-content">
+        <div id="Allocation" class="tab-content">
             <div class="content-card">
                 <h3>Detailed Holdings</h3>
                 <div class="table-responsive">
@@ -279,7 +290,7 @@
             </div>
         </div>
 
-        <div id="tab4" class="tab-content">
+        <div id="Trades" class="tab-content">
             <div class="content-card">
                 <h3>Historical Transactions</h3>
                 <div class="table-responsive">
@@ -287,6 +298,8 @@
                 </div>
             </div>
         </div>
+
+        
     </div>
 
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>

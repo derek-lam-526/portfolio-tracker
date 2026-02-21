@@ -24,8 +24,11 @@ PLOT_BENCHMARK = ["SPY","QQQ","VEU"]
 # Tickers without dividend tax
 NO_DIVIDEND_TAX = ['SHV', 'SGOV', 'BIL']
 
-# Hosting 
+# Rolling window for quantitative analysis
+QUANT_WINDOW = [21, 63, 252]
 
+
+# Hosting 
 HOST = os.getenv("HOST")
 USER = os.getenv("HOST_USER")
 SUBPAGE = os.getenv("SUBPAGE")

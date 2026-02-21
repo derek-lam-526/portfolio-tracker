@@ -27,6 +27,10 @@ def create_report(figs, df_alloc, df_trades, output_dir=config.OUTPUT_DIR):
         full_html=False, include_plotlyjs=False,
         default_width='100%', default_height='500px', config=plotly_config
     )
+    quant_html = figs["quant"].to_html(
+        full_html=False, include_plotlyjs=False,
+        default_width='100%', default_height='800px', config=plotly_config
+    )
 
     # Create interactive tables
     alloc_table_html = df_alloc.to_html(
@@ -51,6 +55,7 @@ def create_report(figs, df_alloc, df_trades, output_dir=config.OUTPUT_DIR):
         returns_html=returns_html,
         alloc_html=alloc_html,
         alloc_table_html=alloc_table_html,
+        quant_html=quant_html,
         trades_table_html=trades_table_html
     )
     

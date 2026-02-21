@@ -88,6 +88,7 @@ def main():
     fig_wealth = analyzer.get_wealth_plot(df_history, show = False)
     fig_drawdown = analyzer.get_drawdown_plot(df_history, show=False)
     fig_returns = analyzer.get_returns_plot(df_history, show=False)
+    fig_quant = analyzer.get_quant_plots(df_history, show=False, windows=config.QUANT_WINDOW)
     fig_alloc, df_alloc, category_values, sector_values, current_values, current_holdings = analyzer.get_allocation(df_history, df_trades, portfolio_tracker, show=False)
 
     # Summary sheet 
@@ -98,6 +99,7 @@ def main():
         "drawdown": fig_drawdown,
         "returns": fig_returns,
         "alloc": fig_alloc,
+        "quant": fig_quant,
         "summary": summary_sheet
     }
 
@@ -121,6 +123,7 @@ def test():
     fig_wealth = analyzer.get_wealth_plot(df_history, show = False)
     fig_drawdown = analyzer.get_drawdown_plot(df_history, show=False)
     fig_returns = analyzer.get_returns_plot(df_history, show=False)
+    fig_quant = analyzer.get_quant_plots(df_history, show=False, windows=config.QUANT_WINDOW)
     fig_alloc, df_alloc, category_values, sector_values, current_values, current_holdings = analyzer.get_allocation(df_history, df_trades, portfolio_tracker, show=False)
 
     # Summary sheet 
@@ -131,6 +134,7 @@ def test():
         "drawdown": fig_drawdown,
         "returns": fig_returns,
         "alloc": fig_alloc,
+        "quant": fig_quant,
         "summary": summary_sheet
     }
 
