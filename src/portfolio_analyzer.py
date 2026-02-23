@@ -1057,7 +1057,247 @@ def get_beta_exposure_plot(portfolio_tracker, current_holdings, current_values, 
 
     return fig, df_beta
 
-def get_summary_sheet(history_df, category_values, sector_values, current_values, current_holdings):
+def fetch_fama_french_factors(start_date, end_date):
+    """Fetches Fama-French 3-Factor daily data directly from Kenneth French's Data Library."""
+    import urllib.request
+    import zipfile
+    import io
+
+    # URL to the daily 3-factor dataset
+    url = "https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/ftp/F-F_Research_Data_Factors_daily_CSV.zip"
+    
+    try:
+        # Download and read zip file in memory
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req) as response:
+            with zipfile.ZipFile(io.BytesIO(response.read())) as z:
+                # Get the first (and usually only) CSV file
+                filename = z.namelist()[0]
+                with z.open(filename) as f:
+                    content = f.read().decode('utf-8')
+        
+        # Parse the CSV text
+        lines = content.split('\n')
+        
+        # Find start of data (skip header info)
+        start_idx = 0
+        for i, line in enumerate(lines):
+            if line.startswith(',Mkt-RF'):
+                start_idx = i
+                break
+                
+        # Find end of data (stop before annual data or empty lines)
+        end_idx = start_idx + 1
+        for i, line in enumerate(lines[start_idx+1:]):
+            if not line.strip() or len(line.split(',')[0]) != 8:  # 8 digits for YYYYMMDD
+                end_idx = start_idx + 1 + i
+                break
+                
+        # Reconstruct valid CSV data
+        csv_data = "\n".join(lines[start_idx:end_idx])
+        
+        # Load into DataFrame
+        ff_df = pd.read_csv(io.StringIO(csv_data), index_col=0)
+        
+        # Clean index (YYYYMMDD string -> Datetime)
+        ff_df.index = pd.to_datetime(ff_df.index.astype(str), format='%Y%m%d')
+        
+        # Clean column names (strip whitespace)
+        ff_df.columns = ff_df.columns.str.strip()
+        
+        # Convert values to float and from percentage to decimal
+        for col in ff_df.columns:
+            ff_df[col] = pd.to_numeric(ff_df[col], errors='coerce') / 100.0
+            
+        # Filter to requested date range
+        start = pd.to_datetime(start_date)
+        end = pd.to_datetime(end_date)
+        ff_df = ff_df[(ff_df.index >= start) & (ff_df.index <= end)]
+        
+        return ff_df
+    except Exception as e:
+        print(f"⚠️  Error fetching Fama-French factors: {e}")
+        return None
+
+def get_factor_analysis_plot(history_df, show=False):
+    """Runs a Fama-French 3-factor OLS regression and produces a combined visualization
+    with a factor loadings bar chart and a regression summary table."""
+
+    start_date = history_df.index.min().strftime('%Y-%m-%d')
+    end_date = history_df.index.max().strftime('%Y-%m-%d')
+
+    ff_df = fetch_fama_french_factors(start_date, end_date)
+    if ff_df is None or ff_df.empty:
+        fig = go.Figure()
+        fig.add_annotation(text="Could not retrieve Fama-French factor data.",
+                           xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False,
+                           font=dict(size=16, color="#6b7280"))
+        fig.update_layout(template='plotly_white', height=400)
+        return fig, {}
+
+    # Align portfolio returns with factor data
+    port_returns = history_df['Daily_Return'].copy()
+    port_returns.index = pd.to_datetime(port_returns.index)
+
+    aligned = pd.DataFrame({
+        'Portfolio': port_returns,
+        'Mkt-RF': ff_df['Mkt-RF'],
+        'SMB': ff_df['SMB'],
+        'HML': ff_df['HML'],
+        'RF': ff_df['RF']
+    }).dropna()
+
+    if len(aligned) < 30:
+        fig = go.Figure()
+        fig.add_annotation(text="Insufficient overlapping data for factor regression (need 30+ days).",
+                           xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False,
+                           font=dict(size=16, color="#6b7280"))
+        fig.update_layout(template='plotly_white', height=400)
+        return fig, {}
+
+    # Dependent variable: Portfolio excess returns
+    y = (aligned['Portfolio'] - aligned['RF']).values
+    # Independent variables: Mkt-RF, SMB, HML (with intercept)
+    X = aligned[['Mkt-RF', 'SMB', 'HML']].values
+    X_with_const = np.column_stack([np.ones(len(X)), X])  # Add intercept column
+
+    # OLS via numpy: beta = (X'X)^-1 X'y
+    try:
+        betas, residuals, rank, sv = np.linalg.lstsq(X_with_const, y, rcond=None)
+    except np.linalg.LinAlgError:
+        fig = go.Figure()
+        fig.add_annotation(text="Factor regression failed (singular matrix).",
+                           xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False,
+                           font=dict(size=16, color="#6b7280"))
+        fig.update_layout(template='plotly_white', height=400)
+        return fig, {}
+
+    alpha_daily = betas[0]
+    mkt_beta = betas[1]
+    smb_beta = betas[2]
+    hml_beta = betas[3]
+
+    # Calculate R-squared
+    y_pred = X_with_const @ betas
+    ss_res = np.sum((y - y_pred) ** 2)
+    ss_tot = np.sum((y - y.mean()) ** 2)
+    r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
+
+    # Calculate standard errors and t-statistics
+    n = len(y)
+    k = X_with_const.shape[1]
+    mse = ss_res / (n - k) if n > k else ss_res
+    var_beta = mse * np.linalg.inv(X_with_const.T @ X_with_const).diagonal()
+    se = np.sqrt(np.abs(var_beta))
+    t_stats = betas / se
+    # p-values (two-tailed) using scipy.stats.t distribution
+    from scipy.stats import t as t_dist
+    p_values = 2 * (1 - t_dist.cdf(np.abs(t_stats), df=n - k))
+
+    # Annualize alpha
+    alpha_annual = (1 + alpha_daily) ** 252 - 1
+
+    factor_results = {
+        'alpha_daily': alpha_daily,
+        'alpha_annual': alpha_annual,
+        'alpha_p_value': p_values[0],
+        'mkt_beta': mkt_beta,
+        'mkt_p_value': p_values[1],
+        'smb_beta': smb_beta,
+        'smb_p_value': p_values[2],
+        'hml_beta': hml_beta,
+        'hml_p_value': p_values[3],
+        'r_squared': r_squared,
+        'n_obs': n,
+    }
+
+    # --- Visualization ---
+    fig = make_subplots(
+        rows=1, cols=2,
+        column_widths=[0.55, 0.45],
+        specs=[[{"type": "bar"}, {"type": "table"}]],
+        subplot_titles=["Factor Loadings (Betas)", "Regression Summary"]
+    )
+
+    # Bar chart of factor loadings
+    factor_names = ['Mkt-RF (β₁)', 'SMB (β₂)', 'HML (β₃)']
+    factor_betas = [mkt_beta, smb_beta, hml_beta]
+    factor_pvals = [p_values[1], p_values[2], p_values[3]]
+    bar_colors = ['#2563eb' if b >= 0 else '#dc2626' for b in factor_betas]
+
+    # Add significance stars
+    def sig_stars(p):
+        if p < 0.001: return '***'
+        if p < 0.01: return '**'
+        if p < 0.05: return '*'
+        return ''
+
+    bar_text = [f'{b:.3f}{sig_stars(p)}' for b, p in zip(factor_betas, factor_pvals)]
+
+    fig.add_trace(go.Bar(
+        x=factor_names,
+        y=factor_betas,
+        marker_color=bar_colors,
+        text=bar_text,
+        textposition='outside',
+        textfont=dict(size=13, weight='bold' ),
+        hovertemplate='%{x}<br>Beta: %{y:.4f}<extra></extra>',
+        showlegend=False,
+    ), row=1, col=1)
+
+    fig.add_hline(y=0, line_dash="solid", line_color="#333", line_width=1, row=1, col=1)
+    fig.add_hline(y=1, line_dash="dash", line_color="#999", line_width=1, row=1, col=1)
+
+    # Summary table
+    def fmt_p(p):
+        stars = sig_stars(p)
+        return f'{p:.4f} {stars}'
+
+    table_header = ['Metric', 'Value']
+    table_cells = [
+        ['FF Alpha (Ann.)', f'{alpha_annual:.2%}'],
+        ['Alpha p-value', fmt_p(p_values[0])],
+        ['Mkt-RF (β₁)', f'{mkt_beta:.4f}'],
+        ['SMB (β₂)', f'{smb_beta:.4f}'],
+        ['HML (β₃)', f'{hml_beta:.4f}'],
+        ['R²', f'{r_squared:.4f}'],
+        ['Observations', f'{n}'],
+    ]
+
+    fig.add_trace(go.Table(
+        header=dict(
+            values=table_header,
+            fill_color='#f9fafb',
+            align='left',
+            font=dict(size=13, color='#374151', weight='bold'),
+            line_color='#e5e7eb',
+            height=32
+        ),
+        cells=dict(
+            values=[[r[0] for r in table_cells], [r[1] for r in table_cells]],
+            fill_color=[['white'] * len(table_cells)],
+            align='left',
+            font=dict(size=13, color='#111827'),
+            line_color='#e5e7eb',
+            height=30
+        )
+    ), row=1, col=2)
+
+    fig.update_layout(
+        template='plotly_white',
+        height=420,
+        margin=dict(t=50, b=40, l=50, r=30),
+        showlegend=False,
+    )
+
+    fig.update_yaxes(title_text='Factor Loading', row=1, col=1)
+
+    if show:
+        fig.show()
+
+    return fig, factor_results
+
+def get_summary_sheet(history_df, category_values, sector_values, current_values, current_holdings, factor_results=None):
     # Fetch HKD Rate
     try:
         hkd_ticker = yf.Ticker("HKD=X")
@@ -1208,6 +1448,13 @@ def get_summary_sheet(history_df, category_values, sector_values, current_values
         "ulcer_index": f"{ulcer_index:.3f}" if not np.isnan(ulcer_index) else "N/A",
         "avg_ttr": f"{avg_ttr:.0f} days",
         "max_ttr": f"{max_ttr:.0f} days",
+        # Fama-French Factor Results
+        "ff_alpha": f"{factor_results.get('alpha_annual', 0):.2%}" if factor_results else "N/A",
+        "ff_alpha_pval": f"{factor_results.get('alpha_p_value', 1):.4f}" if factor_results else "N/A",
+        "ff_mkt_beta": f"{factor_results.get('mkt_beta', 0):.4f}" if factor_results else "N/A",
+        "ff_smb": f"{factor_results.get('smb_beta', 0):.4f}" if factor_results else "N/A",
+        "ff_hml": f"{factor_results.get('hml_beta', 0):.4f}" if factor_results else "N/A",
+        "ff_r_squared": f"{factor_results.get('r_squared', 0):.4f}" if factor_results else "N/A",
     }
 
     return summary_data

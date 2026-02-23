@@ -93,9 +93,10 @@ def main():
     fig_distribution = analyzer.get_distribution_plot(df_history, show=False)
     fig_correlation = analyzer.get_correlation_heatmap(portfolio_tracker, current_holdings, show=False)
     fig_beta_exp, df_beta = analyzer.get_beta_exposure_plot(portfolio_tracker, current_holdings, current_values, show=False)
+    fig_factor, factor_results = analyzer.get_factor_analysis_plot(df_history, show=False)
 
     # Summary sheet 
-    summary_sheet = analyzer.get_summary_sheet(df_history, category_values, sector_values, current_values, current_holdings)
+    summary_sheet = analyzer.get_summary_sheet(df_history, category_values, sector_values, current_values, current_holdings, factor_results=factor_results)
 
     figs = {
         "wealth": fig_wealth,
@@ -106,6 +107,7 @@ def main():
         "distribution": fig_distribution,
         "correlation": fig_correlation,
         "beta_exposure": fig_beta_exp,
+        "factor_analysis": fig_factor,
         "summary": summary_sheet
     }
 
@@ -134,9 +136,10 @@ def test():
     fig_distribution = analyzer.get_distribution_plot(df_history, show=False)
     fig_correlation = analyzer.get_correlation_heatmap(portfolio_tracker, current_holdings, show=False)
     fig_beta_exp, df_beta = analyzer.get_beta_exposure_plot(portfolio_tracker, current_holdings, current_values, show=False)
+    fig_factor, factor_results = analyzer.get_factor_analysis_plot(df_history, show=False)
 
     # Summary sheet 
-    summary_sheet = analyzer.get_summary_sheet(df_history, category_values, sector_values, current_values, current_holdings)
+    summary_sheet = analyzer.get_summary_sheet(df_history, category_values, sector_values, current_values, current_holdings, factor_results=factor_results)
 
     figs = {
         "wealth": fig_wealth,
@@ -147,6 +150,7 @@ def test():
         "distribution": fig_distribution,
         "correlation": fig_correlation,
         "beta_exposure": fig_beta_exp,
+        "factor_analysis": fig_factor,
         "summary": summary_sheet
     }
 

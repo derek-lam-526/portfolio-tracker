@@ -428,6 +428,47 @@
                         </div>
                     </div>
 
+                    <h3 style="margin-top: 25px;">Fama-French Factor Model</h3>
+                    <div class="data-grid">
+                        <div class="data-item">
+                            <div class="data-label data-label-tooltip">FF Alpha (Ann.)
+                                <span class="tooltip-text">True risk-adjusted annualized outperformance after
+                                    controlling for Market, Size, and Value factors.</span>
+                            </div>
+                            <div class="data-val">{{ summary.ff_alpha }}</div>
+                            <div style="font-size:11px; color:#6b7280;">p-value: {{ summary.ff_alpha_pval }}</div>
+                        </div>
+                        <div class="data-item">
+                            <div class="data-label data-label-tooltip">Market Beta (Mkt-RF)
+                                <span class="tooltip-text">Exposure to broad market variance. Beta > 1 implies higher
+                                    volatility than the market.</span>
+                            </div>
+                            <div class="data-val">{{ summary.ff_mkt_beta }}</div>
+                        </div>
+                        <div class="data-item">
+                            <div class="data-label data-label-tooltip">Size Factor (SMB)
+                                <span class="tooltip-text">Small Minus Big: Positive beta indicates a tilt towards
+                                    small-cap stocks.</span>
+                            </div>
+                            <div class="data-val">{{ summary.ff_smb }}</div>
+                        </div>
+                        <div class="data-item">
+                            <div class="data-label data-label-tooltip">Value Factor (HML)
+                                <span class="tooltip-text">High Minus Low: Positive beta indicates a tilt towards value
+                                    stocks; negative indicates growth.</span>
+                            </div>
+                            <div class="data-val">{{ summary.ff_hml }}</div>
+                        </div>
+                        <div class="data-item">
+                            <div class="data-label data-label-tooltip">Model Fit (R²)
+                                <span class="tooltip-text">Percentage of portfolio variance explained by the 3-factor
+                                    model. Represents how much of the return profile is derived from generic systemic
+                                    factors versus idiosyncratic selection.</span>
+                            </div>
+                            <div class="data-val">{{ summary.ff_r_squared }}</div>
+                        </div>
+                    </div>
+
                     <h3 style="margin-top: 25px;">Advanced Risk Profile</h3>
                     <div class="data-grid">
                         <div class="data-item">
@@ -550,7 +591,19 @@
 
         <div id="Quant" class="tab-content">
             <div class="card">
-                <h2 class="card-title">Quantitative Analysis</h2>
+                <h2 class="card-title">Fama-French 3-Factor Regression</h2>
+                <p style="font-size: 13px; color: var(--text-muted); padding: 0 20px;">
+                    Analysis of excess portfolio returns against the Market (Mkt-RF), Size (SMB), and Value (HML)
+                    premiums.
+                    A statistically significant positive Alpha implies genuine outperformance not explained by these
+                    primary risk factors.
+                </p>
+                <div class="chart-container" style="min-height: 420px; padding: 10px;">
+                    {{ factor_analysis_html | safe }}
+                </div>
+            </div>
+            <div class="card" style="margin-top: 20px;">
+                <h2 class="card-title">Rolling Analysis</h2>
                 <div class="chart-container">
                     {{ quant_html | safe }}
                 </div>
