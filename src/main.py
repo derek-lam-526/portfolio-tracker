@@ -91,6 +91,8 @@ def main():
     fig_quant = analyzer.get_quant_plots(df_history, show=False, windows=config.QUANT_WINDOW)
     fig_alloc, df_alloc, category_values, sector_values, current_values, current_holdings = analyzer.get_allocation(df_history, df_trades, portfolio_tracker, show=False)
     fig_distribution = analyzer.get_distribution_plot(df_history, show=False)
+    fig_correlation = analyzer.get_correlation_heatmap(portfolio_tracker, current_holdings, show=False)
+    fig_beta_exp, df_beta = analyzer.get_beta_exposure_plot(portfolio_tracker, current_holdings, current_values, show=False)
 
     # Summary sheet 
     summary_sheet = analyzer.get_summary_sheet(df_history, category_values, sector_values, current_values, current_holdings)
@@ -102,6 +104,8 @@ def main():
         "alloc": fig_alloc,
         "quant": fig_quant,
         "distribution": fig_distribution,
+        "correlation": fig_correlation,
+        "beta_exposure": fig_beta_exp,
         "summary": summary_sheet
     }
 
@@ -128,6 +132,9 @@ def test():
     fig_quant = analyzer.get_quant_plots(df_history, show=False, windows=config.QUANT_WINDOW)
     fig_alloc, df_alloc, category_values, sector_values, current_values, current_holdings = analyzer.get_allocation(df_history, df_trades, portfolio_tracker, show=False)
     fig_distribution = analyzer.get_distribution_plot(df_history, show=False)
+    fig_correlation = analyzer.get_correlation_heatmap(portfolio_tracker, current_holdings, show=False)
+    fig_beta_exp, df_beta = analyzer.get_beta_exposure_plot(portfolio_tracker, current_holdings, current_values, show=False)
+
     # Summary sheet 
     summary_sheet = analyzer.get_summary_sheet(df_history, category_values, sector_values, current_values, current_holdings)
 
@@ -138,6 +145,8 @@ def test():
         "alloc": fig_alloc,
         "quant": fig_quant,
         "distribution": fig_distribution,
+        "correlation": fig_correlation,
+        "beta_exposure": fig_beta_exp,
         "summary": summary_sheet
     }
 

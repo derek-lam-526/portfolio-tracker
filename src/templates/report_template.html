@@ -527,6 +527,25 @@
                 </p>
                 <div class="plot-container" style="min-height: 400px;">{{ distribution_html | safe }}</div>
             </div>
+            <div class="responsive-2-col">
+                <div class="content-card">
+                    <h3>Asset Correlation Matrix</h3>
+                    <p style="font-size: 13px; color: var(--text-muted); margin-top: -10px; margin-bottom: 15px;">
+                        Pairwise correlations between all currently held assets. Values near +1 indicate assets
+                        move together (less diversification); values near 0 or negative indicate independent or
+                        inverse movement (better diversification).
+                    </p>
+                    <div class="plot-container" style="min-height: 400px;">{{ correlation_html | safe }}</div>
+                </div>
+                <div class="content-card"">
+                    <h3>Nominal vs. Beta-Adjusted Exposure</h3>
+                    <p style=" font-size: 13px; color: var(--text-muted); margin-top: -10px; margin-bottom: 15px;">
+                    Compares each holding's dollar weight against its beta-adjusted weight. High-beta assets
+                    contribute disproportionately more systematic risk than their nominal allocation suggests.
+                    </p>
+                    <div class="plot-container" style="min-height: 400px;">{{ beta_exposure_html | safe }}</div>
+                </div>
+            </div>
         </div>
 
         <div id="Quant" class="tab-content">

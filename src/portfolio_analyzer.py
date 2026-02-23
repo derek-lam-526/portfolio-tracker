@@ -870,6 +870,193 @@ def get_distribution_plot(history_df, show=False):
 
     return fig
 
+def get_correlation_heatmap(portfolio_tracker, current_holdings, show=False):
+    """Creates an annotated heatmap of pairwise correlations for all currently held assets."""
+    symbols = [s for s in current_holdings.keys() if s != 'CASH']
+
+    if len(symbols) < 2:
+        # Need at least 2 assets for a correlation matrix
+        fig = go.Figure()
+        fig.add_annotation(text="Need at least 2 holdings for correlation analysis.",
+                           xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False,
+                           font=dict(size=16, color="#6b7280"))
+        fig.update_layout(template='plotly_white', height=400)
+        return fig
+
+    # Build a DataFrame of daily returns for each held asset
+    returns_dict = {}
+    for sym in symbols:
+        if sym in portfolio_tracker.market_data and not portfolio_tracker.market_data[sym].empty:
+            close = portfolio_tracker.market_data[sym]['Close'].copy()
+            if close.index.tz is not None:
+                close.index = close.index.tz_localize(None)
+            returns_dict[sym] = close.pct_change().fillna(0)
+
+    if len(returns_dict) < 2:
+        fig = go.Figure()
+        fig.add_annotation(text="Insufficient price data for correlation analysis.",
+                           xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False,
+                           font=dict(size=16, color="#6b7280"))
+        fig.update_layout(template='plotly_white', height=400)
+        return fig
+
+    df_returns = pd.DataFrame(returns_dict).dropna()
+    corr_matrix = df_returns.corr()
+
+    # Round for display
+    corr_text = corr_matrix.round(2).values.tolist()
+
+    # Color scale: blue (negative) -> white (zero) -> red (positive)
+    colorscale = [
+        [0.0, '#2563eb'],   # Strong negative = blue
+        [0.5, '#ffffff'],   # Zero = white
+        [1.0, '#dc2626'],   # Strong positive = red
+    ]
+
+    fig = go.Figure(data=go.Heatmap(
+        z=corr_matrix.values,
+        x=corr_matrix.columns.tolist(),
+        y=corr_matrix.index.tolist(),
+        text=corr_text,
+        texttemplate='%{text}',
+        textfont=dict(size=11),
+        colorscale=colorscale,
+        zmin=-1, zmax=1,
+        colorbar=dict(title='Correlation', thickness=15, len=0.75),
+        hovertemplate='%{x} vs %{y}<br>Correlation: %{z:.3f}<extra></extra>'
+    ))
+
+    fig.update_layout(
+        template='plotly_white',
+        title='Pairwise Asset Correlation Matrix',
+        height=max(450, 50 + len(symbols) * 35),
+        margin=dict(t=60, b=60, l=80, r=40),
+        xaxis=dict(side='bottom', tickangle=-45),
+        yaxis=dict(autorange='reversed'),
+    )
+
+    if show:
+        fig.show()
+
+    return fig
+
+def get_beta_exposure_plot(portfolio_tracker, current_holdings, current_values, show=False):
+    """Calculates individual asset betas and shows a side-by-side comparison of
+    nominal (dollar) allocation vs. beta-adjusted exposure."""
+    benchmark_symbol = config.METRICS_BENCHMARK
+    symbols = [s for s in current_holdings.keys() if s != 'CASH']
+
+    if not symbols:
+        fig = go.Figure()
+        fig.add_annotation(text="No equity holdings for beta analysis.",
+                           xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False,
+                           font=dict(size=16, color="#6b7280"))
+        fig.update_layout(template='plotly_white', height=400)
+        return fig
+
+    # Get benchmark returns
+    try:
+        bench_data = portfolio_tracker.market_data.get(benchmark_symbol)
+        if bench_data is None or bench_data.empty:
+            bench_ticker = yf.Ticker(benchmark_symbol)
+            bench_data = bench_ticker.history(period="1y")
+        bench_returns = bench_data['Close'].pct_change().dropna()
+        if bench_returns.index.tz is not None:
+            bench_returns.index = bench_returns.index.tz_localize(None)
+    except Exception:
+        fig = go.Figure()
+        fig.add_annotation(text=f"Could not fetch {benchmark_symbol} data for beta calculation.",
+                           xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False,
+                           font=dict(size=16, color="#6b7280"))
+        fig.update_layout(template='plotly_white', height=400)
+        return fig
+
+    rows = []
+    total_portfolio_value = sum(current_values.values())
+
+    for sym in symbols:
+        if sym not in portfolio_tracker.market_data or portfolio_tracker.market_data[sym].empty:
+            continue
+
+        asset_returns = portfolio_tracker.market_data[sym]['Close'].pct_change().dropna()
+        if asset_returns.index.tz is not None:
+            asset_returns.index = asset_returns.index.tz_localize(None)
+
+        # Align dates
+        aligned = pd.DataFrame({
+            'asset': asset_returns,
+            'bench': bench_returns
+        }).dropna()
+
+        if len(aligned) < 20:
+            beta = 1.0  # Default to market beta if insufficient data
+        else:
+            beta_val, _, _, _, _ = stats.linregress(aligned['bench'], aligned['asset'])
+            beta = beta_val
+
+        nominal_val = current_values.get(sym, 0)
+        beta_adj_val = nominal_val * beta
+        nominal_pct = (nominal_val / total_portfolio_value) * 100
+        beta_adj_pct = (beta_adj_val / total_portfolio_value) * 100
+
+        rows.append({
+            'Symbol': sym,
+            'Beta': round(beta, 2),
+            'Nominal ($)': nominal_val,
+            'Nominal (%)': round(nominal_pct, 1),
+            'Beta-Adj ($)': beta_adj_val,
+            'Beta-Adj (%)': round(beta_adj_pct, 1),
+        })
+
+    if not rows:
+        fig = go.Figure()
+        fig.update_layout(template='plotly_white', height=400)
+        return fig
+
+    df_beta = pd.DataFrame(rows).sort_values('Nominal ($)', ascending=True)
+
+    fig = go.Figure()
+
+    # Nominal allocation bars
+    fig.add_trace(go.Bar(
+        y=df_beta['Symbol'],
+        x=df_beta['Nominal (%)'],
+        name='Nominal Allocation (%)',
+        orientation='h',
+        marker_color='rgba(37, 99, 235, 0.7)',
+        text=df_beta['Nominal (%)'].apply(lambda x: f'{x:.1f}%'),
+        textposition='outside',
+        hovertemplate='%{y}<br>Nominal: %{x:.1f}%<extra></extra>'
+    ))
+
+    # Beta-adjusted exposure bars
+    fig.add_trace(go.Bar(
+        y=df_beta['Symbol'],
+        x=df_beta['Beta-Adj (%)'],
+        name='Beta-Adjusted Exposure (%)',
+        orientation='h',
+        marker_color='rgba(220, 38, 38, 0.7)',
+        text=df_beta.apply(lambda r: f'{r["Beta-Adj (%)"]:.1f}% (β={r["Beta"]:.2f})', axis=1),
+        textposition='outside',
+        hovertemplate='%{y}<br>Beta-Adj: %{x:.1f}%<extra></extra>'
+    ))
+
+    fig.update_layout(
+        template='plotly_white',
+        title=f'Nominal vs. Beta-Adjusted Exposure (Benchmark: {benchmark_symbol})',
+        xaxis_title='Portfolio Weight (%)',
+        barmode='group',
+        height=max(400, 60 + len(df_beta) * 40),
+        legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1),
+        margin=dict(t=80, b=50, l=80, r=100),
+        bargap=0.25,
+    )
+
+    if show:
+        fig.show()
+
+    return fig, df_beta
+
 def get_summary_sheet(history_df, category_values, sector_values, current_values, current_holdings):
     # Fetch HKD Rate
     try:
