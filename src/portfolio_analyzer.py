@@ -10,6 +10,16 @@ import matplotlib.pyplot as plt
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+# Modern Fintech Palette
+COLOR_PORT_MAIN = '#2563eb'  # Premium Blue
+COLOR_PORT_ALT = '#1d4ed8'   # Darker Blue
+COLOR_BENCHMARK = '#64748b'  # Slate Grey
+COLOR_POSITIVE = '#10b981'   # Emerald
+COLOR_NEGATIVE = '#ef4444'   # Rose/Red
+COLOR_ACCENT = '#8b5cf6'     # Violet
+COLOR_TEXT = '#1f2937'       # Slate 800
+COLOR_GRID = '#f1f5f9'       # Slate 100
+
 def calculate_performance_metrics(history_df):
     history_df['Prev_Equity'] = history_df['Total_Equity'].shift(1)
     
@@ -304,19 +314,19 @@ def get_wealth_plot(history_df, show = False):
         rows=2, cols=1, 
         shared_xaxes=True, 
         vertical_spacing=0.08,
-        row_heights=[0.6, 0.4], # Give more space to the main wealth chart
-        subplot_titles=("Equity and Invested Capital Curve", "Total PnL")
+        row_heights=[0.6, 0.4],
+        subplot_titles=("Portfolio Value & Invested Capital", "Net Profit / Loss")
     )
     
-    # --- Graph 1 ---
+    # --- Graph 1: Wealth ---
     # Invested Capital 
     fig.add_trace(go.Scatter(
         x=history_df.index, 
         y=history_df['Invested_Capital'],
         mode='lines',
         name='Invested Capital',
-        line=dict(color='#555555', width=1.5, dash='dash'), 
-        legendgroup='group1'
+        line=dict(color='#94a3b8', width=1.5, dash='dot'), 
+        hovertemplate='Capital: $%{y:,.2f}'
     ), row=1, col=1)
 
     # Total Equity
@@ -325,49 +335,47 @@ def get_wealth_plot(history_df, show = False):
         y=history_df['Total_Equity'],
         mode='lines',
         name='Total Equity',
-        line=dict(color='#2E7D32', width=2), # Darker Green
+        line=dict(color=COLOR_PORT_MAIN, width=2.5),
         fill='tonexty', 
-        fillcolor='rgba(46, 125, 50, 0.1)', # Matching transparent green
-        legendgroup='group1'
+        fillcolor='rgba(37, 99, 235, 0.08)',
+        hovertemplate='Total: $%{y:,.2f}'
     ), row=1, col=1)
 
-    # --- Graph 2 ---
+    # --- Graph 2: PnL ---
     fig.add_trace(go.Scatter(
         x=history_df.index, 
         y=history_df['PnL'],
         mode='lines',
         name='Net PnL',
-        line=dict(color='#1976D2', width=2), # Strong Blue
+        line=dict(color=COLOR_ACCENT, width=2),
         fill='tozeroy', 
-        fillcolor='rgba(25, 118, 210, 0.1)', # Matching transparent blue
-        legendgroup='group2'
+        fillcolor='rgba(139, 92, 246, 0.08)',
+        hovertemplate='PnL: $%{y:,.2f}'
     ), row=2, col=1)
 
-    fig.add_hline(y=0, line_dash="dash", line_color="gray", row=2, col=1)
+    fig.add_hline(y=0, line_dash="solid", line_color="#cbd5e1", row=2, col=1)
     
     # Layout
     fig.update_layout(
-        template="plotly_white", # <--- SWITCHED TO LIGHT MODE
+        template="plotly_white",
         hovermode="x unified",
         height=700,
         showlegend=True,
         legend=dict(
             orientation="h",
             yanchor="bottom",
-            y=1.05, 
+            y=1.02, 
             xanchor="right",
             x=1
         ),
+        margin=dict(l=50, r=20, t=60, b=50),
+        font=dict(family="Inter, sans-serif", size=12, color=COLOR_TEXT)
     )
 
-    fig.update_yaxes(title_text="Value ($)", showgrid=True, gridcolor='#E0E0E0', row=1, col=1)
-    fig.update_yaxes(title_text="PnL ($)", showgrid=True, gridcolor='#E0E0E0', row=2, col=1)
-    fig.update_xaxes(showgrid=True, gridcolor='#E0E0E0')
-    fig.update_xaxes(
-        rangebreaks=[
-            dict(bounds=["sat", "mon"]) # hide weekends
-        ]
-    )
+    fig.update_yaxes(title_text="Value ($)", showgrid=True, gridcolor=COLOR_GRID, row=1, col=1)
+    fig.update_yaxes(title_text="PnL ($)", showgrid=True, gridcolor=COLOR_GRID, row=2, col=1)
+    fig.update_xaxes(showgrid=True, gridcolor=COLOR_GRID)
+    fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
 
     if show:
         fig.show()
@@ -381,20 +389,21 @@ def get_returns_plot(history_df, show=False):
         rows=2, cols=1, 
         shared_xaxes=True, 
         vertical_spacing=0.08,
-        subplot_titles=("Daily Return %", "Total Cumulative Return %"),
+        subplot_titles=("Historical Daily Returns", "Cumulative Return Comparison"),
         row_heights=[0.5, 0.5]
     )
 
     # --- GRAPH 1: Daily Returns ---
-    daily_colors = ['#00897B' if val >= 0 else '#D32F2F' for val in history_df['Daily_Return']]
+    daily_colors = [COLOR_POSITIVE if val >= 0 else COLOR_NEGATIVE for val in history_df['Daily_Return']]
     
     fig.add_trace(go.Bar(
         x=history_df.index, 
         y=history_df['Daily_Return'] * 100,
         name='Daily Return %',
         marker_color=daily_colors,
+        marker_line_width=0,
         hovertemplate='%{y:.2f}%',
-        marker_line_width=0 
+        opacity=0.8
     ), row=1, col=1)
 
     # --- GRAPH 2: Cumulative Returns ---
@@ -403,11 +412,11 @@ def get_returns_plot(history_df, show=False):
         x=history_df.index, 
         y=history_df['Cumulative_Return'] * 100,
         mode='lines',
-        name='Total Portfolio Return %',
-        line=dict(color='#0277BD', width=2), 
+        name='Portfolio',
+        line=dict(color=COLOR_PORT_MAIN, width=3), 
         fill='tozeroy', 
-        fillcolor='rgba(2, 119, 189, 0.1)', 
-        hovertemplate='%{y:.2f}%'
+        fillcolor='rgba(37, 99, 235, 0.05)', 
+        hovertemplate='Portfolio: %{y:.2f}%'
     ), row=2, col=1)
 
     # Benchmark returns
@@ -419,23 +428,22 @@ def get_returns_plot(history_df, show=False):
     if isinstance(benchmark_data, pd.Series):
         benchmark_data = benchmark_data.to_frame(name=benchmark_symbols[0])
 
-    colors = ["#B73352", '#EF6C00', '#8E24AA', '#558B2F']
+    bench_palette = [COLOR_BENCHMARK, COLOR_ACCENT, '#f59e0b', '#ec4899']
 
     for i, ticker in enumerate(benchmark_symbols):
         if ticker in benchmark_data.columns:
             series = benchmark_data[ticker].dropna(axis=0)
-
             cum_return = (series / series.iloc[0]) - 1
-
-            line_color = colors[i % len(colors)]
+            color = bench_palette[i % len(bench_palette)]
 
             fig.add_trace(go.Scatter(
                 x=cum_return.index,
                 y=cum_return * 100,
                 mode='lines',
-                name=f'{ticker} Return',
-                line=dict(color=line_color, width=1.5, dash='solid'),
-                hovertemplate=f'{ticker}: %{{y:.2f}}%'
+                name=ticker,
+                line=dict(color=color, width=1.5),
+                hovertemplate=f'{ticker}: %{{y:.2f}}%',
+                opacity=0.8
             ), row=2, col=1)
 
     # --- Layout ---
@@ -447,25 +455,21 @@ def get_returns_plot(history_df, show=False):
         legend=dict(
             orientation="h",
             yanchor="bottom",
-            y=1.05, 
+            y=1.02, 
             xanchor="right",
             x=1
         ),
-        bargap=0.05 
+        bargap=0.05,
+        font=dict(family="Inter, sans-serif", size=12, color=COLOR_TEXT)
     )
 
-    # Zero Lines & Grids
-    fig.add_hline(y=0, line_dash="solid", line_color="#333", line_width=1, row=1, col=1)
-    fig.add_hline(y=0, line_dash="solid", line_color="#333", line_width=1, row=2, col=1)
+    fig.add_hline(y=0, line_dash="solid", line_color="#cbd5e1", line_width=1, row=1, col=1)
+    fig.add_hline(y=0, line_dash="solid", line_color="#cbd5e1", line_width=1, row=2, col=1)
 
-    fig.update_xaxes(showgrid=True, gridcolor='#E0E0E0')
-    fig.update_yaxes(title_text="Daily %", showgrid=True, gridcolor='#E0E0E0', row=1, col=1)
-    fig.update_yaxes(title_text="Total %", showgrid=True, gridcolor='#E0E0E0', row=2, col=1)
-    fig.update_xaxes(
-        rangebreaks=[
-            dict(bounds=["sat", "mon"]) # hide weekends
-        ]
-    )
+    fig.update_xaxes(showgrid=True, gridcolor=COLOR_GRID)
+    fig.update_yaxes(title_text="Daily %", showgrid=True, gridcolor=COLOR_GRID, row=1, col=1)
+    fig.update_yaxes(title_text="Total %", showgrid=True, gridcolor=COLOR_GRID, row=2, col=1)
+    fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
 
     if show:
         fig.show()
@@ -473,42 +477,36 @@ def get_returns_plot(history_df, show=False):
     return fig
 
 def get_drawdown_plot(history_df, show=False):
-    # Calculate Cumulative Return peak (Running Max)
-    # We use (1 + Daily_Return).cumprod() to ensure it's time-weighted/percentage-based
     cum_returns = (1 + history_df['Daily_Return']).cumprod()
     running_max = cum_returns.cummax()
-    
-    # Calculate Drawdown as a percentage: (Current / Peak) - 1
     drawdown_pct = (cum_returns / running_max) - 1
 
     fig_drawdown = make_subplots(
         rows=2, cols=1, 
         shared_xaxes=True, 
         vertical_spacing=0.1,
-        subplot_titles=("Cumulative Return vs. Running High", "Drawdown (%)"),
+        subplot_titles=("Cumulative Return & Running Peak", "Portfolio Drawdown (Underwater)"),
         row_heights=[0.6, 0.4]
     )
 
     # --- PLOT 1: Cumulative vs Running Max ---
-    # Running Max Line
     fig_drawdown.add_trace(go.Scatter(
         x=history_df.index, 
-        y=(running_max - 1) * 100,  # <-- Adjusted here
+        y=(running_max - 1) * 100,
         mode='lines',
         name='Peak Return',
-        line=dict(color='rgba(0, 0, 0, 0.3)', width=1, dash='dot'),
+        line=dict(color='#94a3b8', width=1, dash='dot'),
         hovertemplate='Peak: %{y:.2f}%'
     ), row=1, col=1)
 
-    # Cumulative Return Line
     fig_drawdown.add_trace(go.Scatter(
         x=history_df.index, 
-        y=(cum_returns - 1) * 100,  # <-- Adjusted here
+        y=(cum_returns - 1) * 100,
         mode='lines',
-        name='Cumulative Return',
-        line=dict(color='#0277BD', width=2),
+        name='Portfolio',
+        line=dict(color=COLOR_PORT_MAIN, width=2.5),
         fill='tonexty',
-        fillcolor='rgba(211, 47, 47, 0.2)',
+        fillcolor='rgba(239, 68, 68, 0.05)', # Faint red highlight for being below peak
         hovertemplate='Return: %{y:.2f}%'
     ), row=1, col=1)
 
@@ -518,9 +516,9 @@ def get_drawdown_plot(history_df, show=False):
         y=drawdown_pct * 100,
         mode='lines',
         name='Drawdown %',
-        line=dict(color='#D32F2F', width=1.5),
+        line=dict(color=COLOR_NEGATIVE, width=1.5),
         fill='tozeroy',
-        fillcolor='rgba(211, 47, 47, 0.3)',
+        fillcolor='rgba(239, 68, 68, 0.15)',
         hovertemplate='Drawdown: %{y:.2f}%'
     ), row=2, col=1)
 
@@ -530,13 +528,14 @@ def get_drawdown_plot(history_df, show=False):
         height=600,
         showlegend=True,
         hovermode="x unified",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        margin=dict(l=50, r=20, t=60, b=50),
+        font=dict(family="Inter, sans-serif", size=12, color=COLOR_TEXT)
     )
 
-    fig_drawdown.update_yaxes(title_text="Return %", row=1, col=1)
-    fig_drawdown.update_yaxes(title_text="Drawdown %", row=2, col=1)
-    
-    # Hide weekends
+    fig_drawdown.update_yaxes(title_text="Return %", showgrid=True, gridcolor=COLOR_GRID, row=1, col=1)
+    fig_drawdown.update_yaxes(title_text="Drawdown %", showgrid=True, gridcolor=COLOR_GRID, row=2, col=1)
+    fig_drawdown.update_xaxes(showgrid=True, gridcolor=COLOR_GRID)
     fig_drawdown.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
 
     if show:
@@ -654,14 +653,18 @@ def get_allocation(history_df, trades_df, portfolio_tracker, show=False):
         subplot_titles=['Allocation by Symbol', 'Allocation by Asset Class'],
     )
 
+    # Categorical Color Palette
+    cat_palette = ['#2563eb', '#10b981', '#8b5cf6', '#f59e0b', '#ec4899', '#06b6d4', '#84cc16', '#a855f7']
+
     # Pie 1: By Symbol
     fig_alloc.add_trace(go.Pie(
         labels=df_allocation['Symbol'], 
         values=df_allocation['Value'], 
         name="Symbol",
-        textinfo='label+percent',
+        hole=0.4,
+        textinfo='percent',
         hoverinfo='label+value+percent',
-        insidetextorientation='radial',
+        marker=dict(colors=cat_palette, line=dict(color='#ffffff', width=2)),
         textposition='inside', 
     ), 1, 1)
 
@@ -670,25 +673,32 @@ def get_allocation(history_df, trades_df, portfolio_tracker, show=False):
         labels=df_by_category['Category'], 
         values=df_by_category['Value'], 
         name="Asset Class",
-        textinfo='label+percent',
+        hole=0.4,
+        textinfo='percent',
         hoverinfo='label+value+percent',
-        insidetextorientation='radial',
+        marker=dict(colors=cat_palette, line=dict(color='#ffffff', width=2)),
         textposition='inside', 
     ), 1, 2)
     
     fig_alloc.update_layout(
-        title_text=f"Portfolio Allocation (Total: ${total_portfolio_value:,.2f})",
         uniformtext_minsize=10, 
-        uniformtext_mode='hide', # Hides labels on tiny slices so they don't overlap
-        margin=dict(t=50, b=40, l=20, r=20), # Reduce margins so the pie is larger
-        showlegend=False,
+        uniformtext_mode='hide',
+        margin=dict(t=80, b=120, l=20, r=20),
+        showlegend=True,
         legend=dict(
-            orientation="h",     # Horizontal legend
-            yanchor="bottom",
-            y=-0.2,              # Push legend below the chart
+            orientation="h",
+            yanchor="top",
+            y=-0.25,
             xanchor="center",
             x=0.5
-        )
+        ),
+        font=dict(family="Inter, sans-serif", size=12, color=COLOR_TEXT),
+        template='plotly_white',
+        # Annotations for Donut center
+        annotations=[
+            dict(text='By Symbol', x=0.225, y=0.5, font_size=12, showarrow=False, font_weight='bold', xref="paper", yref="paper"),
+            dict(text='By Class', x=0.775, y=0.5, font_size=12, showarrow=False, font_weight='bold', xref="paper", yref="paper")
+        ]
     )
 
     # Display DataFrame
@@ -731,66 +741,50 @@ def get_quant_plots(history_df, show=False, windows=[21, 63]):
                         "Rolling Sharpe Ratio")
     )
     
-    # Define 8 colors in total (4 for Portfolio, 4 for Benchmark)
-    # Using distinct complementary/contrasting palettes
-    port_colors = ['#0277BD', '#2E7D32', '#8E24AA', '#F9A825'] # Blue, Green, Purple, Yellow
-    bench_colors = ['#D32F2F', "#E619C0", '#795548', '#546E7A'] # Red, Orange, Brown, Blue-Grey
+    # Specific Colors for Rolling Charts
+    port_colors = [COLOR_PORT_MAIN, COLOR_ACCENT]
+    bench_colors = [COLOR_BENCHMARK, '#f59e0b']
     
     for i, w in enumerate(windows):
-        # Determine colors for this window using modulo 4
-        p_color = port_colors[i % 4]
-        b_color = bench_colors[i % 4]
+        p_color = port_colors[i % len(port_colors)]
+        b_color = bench_colors[i % len(bench_colors)]
 
-        # 1. Rolling Volatility (Annualized)
+        # Calculations
         rolling_vol = df['Port_Return'].rolling(window=w).std() * np.sqrt(252)
         bench_vol = df['Bench_Return'].rolling(window=w).std() * np.sqrt(252)
-        
-        # 2. Rolling Beta
         rolling_cov = df['Port_Return'].rolling(window=w).cov(df['Bench_Return'])
         rolling_var = df['Bench_Return'].rolling(window=w).var()
         rolling_beta = rolling_cov / rolling_var
-        
-        # 3. Rolling Alpha (Annualized approximation)
-        rolling_alpha_daily = df['Port_Return'].rolling(window=w).mean() - (rolling_beta * df['Bench_Return'].rolling(window=w).mean())
-        rolling_alpha = rolling_alpha_daily * 252 
-        
-        # 4. Rolling Sharpe Ratio (Annualized, assuming Rf = 0)
+        rolling_alpha = (df['Port_Return'].rolling(window=w).mean() - (rolling_beta * df['Bench_Return'].rolling(window=w).mean())) * 252 
         rolling_sharpe = (df['Port_Return'].rolling(window=w).mean() / df['Port_Return'].rolling(window=w).std()) * np.sqrt(252)
         bench_sharpe = (df['Bench_Return'].rolling(window=w).mean() / df['Bench_Return'].rolling(window=w).std()) * np.sqrt(252)
         
         # --- Add Traces ---
-        
-        # Plot Volatility
-        fig.add_trace(go.Scatter(x=df.index, y=rolling_vol*100, mode='lines', name=f'Port Vol ({w}d)', line=dict(color=p_color)), row=1, col=1)
-        fig.add_trace(go.Scatter(x=df.index, y=bench_vol*100, mode='lines', name=f'{bench_ticker} Vol ({w}d)', line=dict(color=b_color, dash='dot', width=1)), row=1, col=1)
-        
-        # Plot Beta (Uses Portfolio Color)
-        fig.add_trace(go.Scatter(x=df.index, y=rolling_beta, mode='lines', name=f'Beta ({w}d)', line=dict(color=p_color)), row=2, col=1)
-        
-        # Plot Alpha (Uses Portfolio Color)
-        fig.add_trace(go.Scatter(x=df.index, y=rolling_alpha*100, mode='lines', name=f'Alpha ({w}d)', line=dict(color=p_color)), row=3, col=1)
-        
-        # Plot Sharpe
-        fig.add_trace(go.Scatter(x=df.index, y=rolling_sharpe, mode='lines', name=f'Port Sharpe ({w}d)', line=dict(color=p_color)), row=4, col=1)
-        fig.add_trace(go.Scatter(x=df.index, y=bench_sharpe, mode='lines', name=f'{bench_ticker} Sharpe ({w}d)', line=dict(color=b_color, dash='dot', width=1)), row=4, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=rolling_vol*100, mode='lines', name=f'Port Vol ({w}d)', line=dict(color=p_color, width=2)), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=bench_vol*100, mode='lines', name=f'Bench Vol ({w}d)', line=dict(color=b_color, dash='dot', width=1.5)), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=rolling_beta, mode='lines', name=f'Beta ({w}d)', line=dict(color=p_color, width=2)), row=2, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=rolling_alpha*100, mode='lines', name=f'Alpha ({w}d)', line=dict(color=p_color, width=2)), row=3, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=rolling_sharpe, mode='lines', name=f'Port Sharpe ({w}d)', line=dict(color=p_color, width=2)), row=4, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=bench_sharpe, mode='lines', name=f'Bench Sharpe ({w}d)', line=dict(color=b_color, dash='dot', width=1.5)), row=4, col=1)
     
     # Reference Lines 
-    fig.add_hline(y=1, line_dash="dash", line_color="black", opacity=0.5, row=2, col=1) # Beta of 1
-    fig.add_hline(y=0, line_dash="dash", line_color="black", opacity=0.5, row=3, col=1) # Zero Alpha
-    fig.add_hline(y=1, line_dash="dash", line_color="black", opacity=0.5, row=4, col=1) # Sharpe of 1.0
+    fig.add_hline(y=1, line_dash="solid", line_color="#cbd5e1", opacity=0.8, row=2, col=1)
+    fig.add_hline(y=0, line_dash="solid", line_color="#cbd5e1", opacity=0.8, row=3, col=1)
+    fig.add_hline(y=1, line_dash="solid", line_color="#cbd5e1", opacity=0.8, row=4, col=1)
     
     fig.update_layout(
         height=1000, 
         template="plotly_white", 
         showlegend=False, 
         hovermode="x unified",
-        margin=dict(t=50, b=50, l=50, r=50)
+        margin=dict(t=60, b=50, l=50, r=20),
+        font=dict(family="Inter, sans-serif", size=11, color=COLOR_TEXT)
     )
     
-    fig.update_yaxes(title_text="Volatility (%)", row=1, col=1)
-    fig.update_yaxes(title_text="Beta", row=2, col=1)
-    fig.update_yaxes(title_text="Alpha (%)", row=3, col=1)
-    fig.update_yaxes(title_text="Sharpe", row=4, col=1)
+    fig.update_yaxes(title_text="Volatility (%)", showgrid=True, gridcolor=COLOR_GRID, row=1, col=1)
+    fig.update_yaxes(title_text="Beta", showgrid=True, gridcolor=COLOR_GRID, row=2, col=1)
+    fig.update_yaxes(title_text="Alpha (%)", showgrid=True, gridcolor=COLOR_GRID, row=3, col=1)
+    fig.update_yaxes(title_text="Sharpe", showgrid=True, gridcolor=COLOR_GRID, row=4, col=1)
     
     # Hide weekends
     fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])

@@ -38,7 +38,7 @@
         }
 
         .container {
-            max-width: 1400px;
+            max-width: 1300px;
             margin: 0 auto;
             padding: 0 20px;
         }
@@ -326,8 +326,8 @@
 
         <div class="header-row">
             <div class="header-title">
-                <h1>Portfolio Intelligence</h1>
-                <p>Performance report from {{ summary.first_date }} to {{ summary.current_date }}</p>
+                <h1>Portfolio Report</h1>
+                <p>Performance from {{ summary.first_date }} to {{ summary.current_date }}</p>
             </div>
             <div style="text-align: right; font-size: 13px; color: var(--text-muted);">
                 <div><strong>Generated:</strong> {{ current_time }}</div>
@@ -377,219 +377,267 @@
 
         <div id="Summary" class="tab-content active">
             <div class="responsive-2-col">
-                <div class="content-card" style="margin: 0;">
-                    <h3>Performance Breakdown</h3>
-                    <div class="data-grid">
-                        <div class="data-item">
-                            <div class="data-label">Market Value</div>
-                            <div class="data-val">US$ {{ summary.current_market_value_usd }}</div>
+                <!-- Left Column -->
+                <div class="summary-col">
+                    <div class="content-card">
+                        <h3>Performance Breakdown</h3>
+                        <div class="data-grid">
+                            <div class="data-item">
+                                <div class="data-label data-label-tooltip">Market Value
+                                    <span class="tooltip-text">Current liquidation value of all open positions in
+                                        USD.</span>
+                                </div>
+                                <div class="data-val">US$ {{ summary.current_market_value_usd }}</div>
+                            </div>
+                            <div class="data-item">
+                                <div class="data-label data-label-tooltip">Cash Reserve
+                                    <span class="tooltip-text">Uninvested cash available in the portfolio.</span>
+                                </div>
+                                <div class="data-val">US$ {{ summary.current_cash_usd }}</div>
+                            </div>
+                            <div class="data-item">
+                                <div class="data-label data-label-tooltip">Nominal Return (%)
+                                    <span class="tooltip-text">Total profit/loss divided by total invested capital
+                                        (Simple ROI).</span>
+                                </div>
+                                <div class="data-val">{{ summary.total_return_pct_html | safe }}</div>
+                                <div style="font-size:11px; color:#6b7280; margin-top:3px;">Simple ROI</div>
+                            </div>
+                            <div class="data-item">
+                                <div class="data-label data-label-tooltip">Cumulative Return (%)
+                                    <span class="tooltip-text">Time-weighted return accounting for external cash
+                                        flows.</span>
+                                </div>
+                                <div class="data-val">{{ summary.total_cum_return_html | safe }}</div>
+                                <div style="font-size:11px; color:#6b7280; margin-top:3px;">Cash-flow adjusted</div>
+                            </div>
+                            <div class="data-item">
+                                <div class="data-label data-label-tooltip">Max Hist. Return
+                                    <span class="tooltip-text">Highest portfolio value reached relative to initial
+                                        principal.</span>
+                                </div>
+                                <div class="data-val">{{ summary.max_return_html | safe }}</div>
+                            </div>
+                            <div class="data-item">
+                                <div class="data-label data-label-tooltip">Benchmark Return
+                                    <span class="tooltip-text">Total return of the selected benchmark (e.g., S&P 500)
+                                        over the same period.</span>
+                                </div>
+                                <div class="data-val">{{ summary.benchmark_total_return }}</div>
+                            </div>
                         </div>
-                        <div class="data-item">
-                            <div class="data-label">Cash Reserve</div>
-                            <div class="data-val">US$ {{ summary.current_cash_usd }}</div>
+                    </div>
+
+                    <div class="content-card">
+                        <h3>Trade Performance Analytics</h3>
+                        <div class="data-grid">
+                            <div class="data-item">
+                                <div class="data-label data-label-tooltip">Total Closed Trades
+                                    <span class="tooltip-text">Number of completed buy-to-sell cycles matched using FIFO
+                                        logic.</span>
+                                </div>
+                                <div class="data-val">{{ summary.total_trades }}</div>
+                            </div>
+                            <div class="data-item">
+                                <div class="data-label data-label-tooltip">Hit Rate (Win %)
+                                    <span class="tooltip-text">Percentage of closed trades that resulted in a net profit
+                                        after fees.</span>
+                                </div>
+                                <div class="data-val">{{ summary.win_rate }}</div>
+                            </div>
+                            <div class="data-item">
+                                <div class="data-label data-label-tooltip">Profit Factor
+                                    <span class="tooltip-text">Gross Profits / Gross Losses. A value > 1.0 means the
+                                        strategy is profitable.</span>
+                                </div>
+                                <div class="data-val">{{ summary.profit_factor }}</div>
+                            </div>
+                            <div class="data-item">
+                                <div class="data-label data-label-tooltip">Expectancy
+                                    <span class="tooltip-text">The average dollar amount you expect to win or lose per
+                                        trade.</span>
+                                </div>
+                                <div class="data-val">{{ summary.expectancy }}</div>
+                            </div>
+                            <div class="data-item" style="grid-column: span 2;">
+                                <div class="data-label data-label-tooltip">Total Realized PnL
+                                    <span class="tooltip-text">Cumulative net profit or loss from all closed positions
+                                        after accounting for fees.</span>
+                                </div>
+                                <div class="data-val">{{ summary.total_realized_pnl_html | safe }}</div>
+                            </div>
                         </div>
-                        <div class="data-item">
-                            <div class="data-label">Nominal Return (%)</div>
-                            <div class="data-val">{{ summary.total_return_pct_html | safe }}</div>
-                            <div style="font-size:11px; color:#6b7280; margin-top:3px;">Simple ROI</div>
-                        </div>
-                        <div class="data-item">
-                            <div class="data-label">Cumulative Return (%)</div>
-                            <div class="data-val">{{ summary.total_cum_return_html | safe }}</div>
-                            <div style="font-size:11px; color:#6b7280; margin-top:3px;">Cash-flow adjusted</div>
-                        </div>
-                        <div class="data-item">
-                            <div class="data-label">Max Hist. Return</div>
-                            <div class="data-val">{{ summary.max_return_html | safe }}</div>
-                        </div>
-                        <div class="data-item">
-                            <div class="data-label">Benchmark Return</div>
-                            <div class="data-val">{{ summary.benchmark_total_return }}</div>
+                    </div>
+
+                    <div class="content-card">
+                        <h3>Composition Profile</h3>
+                        <div class="data-grid">
+                            <div class="data-item" style="grid-column: span 2;">
+                                <div class="data-label data-label-tooltip">Asset Allocation
+                                    <span class="tooltip-text">Distribution of assets across classes (Crypto, Equity,
+                                        Cash).</span>
+                                </div>
+                                <div class="data-val" style="font-size: 14px;">{{ summary.asset_alloc_str }}</div>
+                            </div>
+                            <div class="data-item" style="grid-column: span 2;">
+                                <div class="data-label data-label-tooltip">Top 3 Sectors
+                                    <span class="tooltip-text">The three industry sectors with the highest
+                                        exposure.</span>
+                                </div>
+                                <div class="data-val" style="font-size: 14px;">{{ summary.sector_alloc_str }}</div>
+                            </div>
+                            <div class="data-item">
+                                <div class="data-label data-label-tooltip">Total Holdings
+                                    <span class="tooltip-text">Number of unique tickers currently in the
+                                        portfolio.</span>
+                                </div>
+                                <div class="data-val">{{ summary.num_holdings }}</div>
+                            </div>
+                            <div class="data-item">
+                                <div class="data-label data-label-tooltip">Top 10 Concentration
+                                    <span class="tooltip-text">Percentage of portfolio value held in the top 10
+                                        positions.</span>
+                                </div>
+                                <div class="data-val">{{ summary.top_10_pct }}</div>
+                            </div>
                         </div>
                     </div>
                 </div>
 
-                <div class="content-card" style="margin: 0;">
-                    <h3>Risk & Ratios</h3>
-                    <div class="data-grid">
-                        <div class="data-item">
-                            <div class="data-label">Sharpe Ratio</div>
-                            <div class="data-val">{{ summary.sharpe_ratio }}</div>
-                            <div style="font-size:11px; color:#6b7280;">BM: {{ summary.benchmark_sharpe_ratio }}</div>
+                <!-- Right Column -->
+                <div class="summary-col">
+                    <div class="content-card">
+                        <h3>Risk & Ratios</h3>
+                        <div class="data-grid">
+                            <div class="data-item">
+                                <div class="data-label data-label-tooltip">Sharpe Ratio
+                                    <span class="tooltip-text">Risk-adjusted return: (Portfolio Return - Risk Free Rate)
+                                        / Volatility. >1 is good, >2 is great.</span>
+                                </div>
+                                <div class="data-val">{{ summary.sharpe_ratio }}</div>
+                                <div style="font-size:11px; color:#6b7280;">BM: {{ summary.benchmark_sharpe_ratio }}
+                                </div>
+                            </div>
+                            <div class="data-item">
+                                <div class="data-label data-label-tooltip">Sortino Ratio
+                                    <span class="tooltip-text">Similar to Sharpe, but only penalizes downside
+                                        volatility. Better for non-normal returns.</span>
+                                </div>
+                                <div class="data-val">{{ summary.sortino_ratio }}</div>
+                                <div style="font-size:11px; color:#6b7280;">BM: {{ summary.benchmark_sortino_ratio }}
+                                </div>
+                            </div>
+                            <div class="data-item">
+                                <div class="data-label data-label-tooltip">VaR (95% 1-Day)
+                                    <span class="tooltip-text">Value at Risk: Estimated maximum loss on a single day
+                                        with 95% confidence.</span>
+                                </div>
+                                <div class="data-val" style="color: var(--negative);">{{ summary.var_95_percent_return
+                                    }}</div>
+                            </div>
                         </div>
-                        <div class="data-item">
-                            <div class="data-label">Sortino Ratio</div>
-                            <div class="data-val">{{ summary.sortino_ratio }}</div>
-                            <div style="font-size:11px; color:#6b7280;">BM: {{ summary.benchmark_sortino_ratio }}</div>
-                        </div>
-                        <div class="data-item">
-                            <div class="data-label">VaR (95% 1-Day)</div>
-                            <div class="data-val" style="color: var(--negative);">{{ summary.var_95_percent_return }}
+
+                        <h3 style="margin-top: 25px;">Fama-French Factor Model</h3>
+                        <div class="data-grid">
+                            <div class="data-item">
+                                <div class="data-label data-label-tooltip">Alpha (Ann.)
+                                    <span class="tooltip-text">True risk-adjusted annualized outperformance after
+                                        controlling for Market, Size, and Value factors.</span>
+                                </div>
+                                <div class="data-val">{{ summary.ff_alpha }}</div>
+                                <div style="font-size:11px; color:#6b7280;">p-val: {{ summary.ff_alpha_pval }}</div>
+                            </div>
+                            <div class="data-item">
+                                <div class="data-label data-label-tooltip">Market Beta
+                                    <span class="tooltip-text">Sensitivity to broad market movements. Beta > 1 is more
+                                        volatile than market.</span>
+                                </div>
+                                <div class="data-val">{{ summary.ff_mkt_beta }}</div>
+                            </div>
+                            <div class="data-item">
+                                <div class="data-label data-label-tooltip">Size (SMB)
+                                    <span class="tooltip-text">Small Minus Big: Exposure to small-cap stocks vs
+                                        large-cap stocks.</span>
+                                </div>
+                                <div class="data-val">{{ summary.ff_smb }}</div>
+                            </div>
+                            <div class="data-item">
+                                <div class="data-label data-label-tooltip">Value (HML)
+                                    <span class="tooltip-text">High Minus Low: Exposure to value stocks vs growth
+                                        stocks.</span>
+                                </div>
+                                <div class="data-val">{{ summary.ff_hml }}</div>
+                            </div>
+                            <div class="data-item">
+                                <div class="data-label data-label-tooltip">Model R²
+                                    <span class="tooltip-text">Percentage of returns explained by the 3-factor model.
+                                        Represents systematic factor exposure.</span>
+                                </div>
+                                <div class="data-val">{{ summary.ff_r_squared }}</div>
+                            </div>
+                            <div class="data-item">
+                                <div class="data-label data-label-tooltip">Sharpe p-val
+                                    <span class="tooltip-text">Significance of Sharpe ratio vs. 10,000 random
+                                        permutations. p < 0.05 is significant.</span>
+                                </div>
+                                <div class="data-val">{{ summary.mc_p_value }}</div>
                             </div>
                         </div>
                     </div>
 
-                    <h3 style="margin-top: 25px;">Fama-French Factor Model</h3>
-                    <div class="data-grid">
-                        <div class="data-item">
-                            <div class="data-label data-label-tooltip">FF Alpha (Ann.)
-                                <span class="tooltip-text">True risk-adjusted annualized outperformance after
-                                    controlling for Market, Size, and Value factors.</span>
+                    <div class="content-card">
+                        <h3>Risk Profile</h3>
+                        <div class="data-grid">
+                            <div class="data-item">
+                                <div class="data-label data-label-tooltip">Skewness
+                                    <span class="tooltip-text">Asymmetry of returns. Negative = occasional large
+                                        losses.</span>
+                                </div>
+                                <div class="data-val">{{ summary.skewness }}</div>
                             </div>
-                            <div class="data-val">{{ summary.ff_alpha }}</div>
-                            <div style="font-size:11px; color:#6b7280;">p-value: {{ summary.ff_alpha_pval }}</div>
-                        </div>
-                        <div class="data-item">
-                            <div class="data-label data-label-tooltip">Market Beta (Mkt-RF)
-                                <span class="tooltip-text">Exposure to broad market variance. Beta > 1 implies higher
-                                    volatility than the market.</span>
+                            <div class="data-item">
+                                <div class="data-label data-label-tooltip">Excess Kurtosis
+                                    <span class="tooltip-text">Tail thickness. Higher = more frequent extreme
+                                        events.</span>
+                                </div>
+                                <div class="data-val">{{ summary.kurtosis }}</div>
                             </div>
-                            <div class="data-val">{{ summary.ff_mkt_beta }}</div>
-                        </div>
-                        <div class="data-item">
-                            <div class="data-label data-label-tooltip">Size Factor (SMB)
-                                <span class="tooltip-text">Small Minus Big: Positive beta indicates a tilt towards
-                                    small-cap stocks.</span>
+                            <div class="data-item">
+                                <div class="data-label data-label-tooltip">CVaR (95%)
+                                    <span class="tooltip-text">Avg loss on the worst 5% of days. Severity of tail
+                                        events.</span>
+                                </div>
+                                <div class="data-val" style="color: var(--negative);">{{ summary.cvar_95 }}</div>
                             </div>
-                            <div class="data-val">{{ summary.ff_smb }}</div>
-                        </div>
-                        <div class="data-item">
-                            <div class="data-label data-label-tooltip">Value Factor (HML)
-                                <span class="tooltip-text">High Minus Low: Positive beta indicates a tilt towards value
-                                    stocks; negative indicates growth.</span>
+                            <div class="data-item">
+                                <div class="data-label data-label-tooltip">Exp. MaxDD (95%)
+                                    <span class="tooltip-text">Worst-case max drawdown based on 10,000 bootstrap
+                                        simulations.</span>
+                                </div>
+                                <div class="data-val" style="color: var(--negative);">{{ summary.expected_max_dd_95 }}
+                                </div>
                             </div>
-                            <div class="data-val">{{ summary.ff_hml }}</div>
-                        </div>
-                        <div class="data-item">
-                            <div class="data-label data-label-tooltip">Model Fit (R²)
-                                <span class="tooltip-text">Percentage of portfolio variance explained by the 3-factor
-                                    model. Represents how much of the return profile is derived from generic systemic
-                                    factors versus idiosyncratic selection.</span>
+                            <div class="data-item">
+                                <div class="data-label data-label-tooltip">Ulcer Index
+                                    <span class="tooltip-text">Measures the depth and duration of drawdowns. Lower is
+                                        better.</span>
+                                </div>
+                                <div class="data-val">{{ summary.ulcer_index }}</div>
                             </div>
-                            <div class="data-val">{{ summary.ff_r_squared }}</div>
-                        </div>
-                        <div class="data-item">
-                            <div class="data-label data-label-tooltip">Sharpe p-value
-                                <span class="tooltip-text">Statistical significance of the portfolio's Sharpe ratio
-                                    using a Monte Carlo permutation test (10,000 runs). A value < 0.05 indicates the
-                                        risk-adjusted returns are likely not due to random chance.</span>
+                            <div class="data-item">
+                                <div class="data-label data-label-tooltip">Avg Recovery
+                                    <span class="tooltip-text">Average trading days required to recover from a drawdown
+                                        to a new peak.</span>
+                                </div>
+                                <div class="data-val">{{ summary.avg_ttr }}</div>
                             </div>
-                            <div class="data-val">{{ summary.mc_p_value }}</div>
-                        </div>
-                    </div>
-
-                    <h3 style="margin-top: 25px;">Trade Performance Analytics</h3>
-                    <div class="data-grid">
-                        <div class="data-item">
-                            <div class="data-label data-label-tooltip">Total Closed Trades
-                                <span class="tooltip-text">Number of completed buy-to-sell cycles matched using FIFO
-                                    logic.</span>
+                            <div class="data-item">
+                                <div class="data-label data-label-tooltip">Max Recovery
+                                    <span class="tooltip-text">The longest historical period spent in a drawdown
+                                        (underwater).</span>
+                                </div>
+                                <div class="data-val">{{ summary.max_ttr }}</div>
                             </div>
-                            <div class="data-val">{{ summary.total_trades }}</div>
-                        </div>
-                        <div class="data-item">
-                            <div class="data-label data-label-tooltip">Hit Rate (Win %)
-                                <span class="tooltip-text">Percentage of closed trades that resulted in a net profit
-                                    after fees.</span>
-                            </div>
-                            <div class="data-val">{{ summary.win_rate }}</div>
-                        </div>
-                        <div class="data-item">
-                            <div class="data-label data-label-tooltip">Profit Factor
-                                <span class="tooltip-text">Gross Profits / Gross Losses. A value > 1.0 means the
-                                    strategy is profitable.</span>
-                            </div>
-                            <div class="data-val">{{ summary.profit_factor }}</div>
-                        </div>
-                        <div class="data-item">
-                            <div class="data-label data-label-tooltip">Expectancy
-                                <span class="tooltip-text">The average dollar amount you expect to win or lose per
-                                    trade.</span>
-                            </div>
-                            <div class="data-val">{{ summary.expectancy }}</div>
-                        </div>
-                        <div class="data-item" style="grid-column: span 2;">
-                            <div class="data-label data-label-tooltip">Total Realized PnL
-                                <span class="tooltip-text">Cumulative net profit or loss from all closed positions after
-                                    accounting for fees.</span>
-                            </div>
-                            <div class="data-val">{{ summary.total_realized_pnl_html | safe }}</div>
-                        </div>
-                    </div>
-
-                    <h3 style="margin-top: 25px;">Advanced Risk Profile</h3>
-                    <div class="data-grid">
-                        <div class="data-item">
-                            <div class="data-label data-label-tooltip">Skewness
-                                <span class="tooltip-text">Asymmetry of the return distribution. Negative skew =
-                                    frequent small gains with occasional large losses (typical for equities).</span>
-                            </div>
-                            <div class="data-val">{{ summary.skewness }}</div>
-                        </div>
-                        <div class="data-item">
-                            <div class="data-label data-label-tooltip">Excess Kurtosis
-                                <span class="tooltip-text">"Tail thickness" relative to normal distribution (normal =
-                                    0). Higher values = more frequent extreme events (fat tails).</span>
-                            </div>
-                            <div class="data-val">{{ summary.kurtosis }}</div>
-                        </div>
-                        <div class="data-item">
-                            <div class="data-label data-label-tooltip">CVaR / Expected Shortfall (95%)
-                                <span class="tooltip-text">The average loss on the worst 5% of trading days. More
-                                    informative than VaR because it quantifies the severity of tail events, not just the
-                                    threshold.</span>
-                            </div>
-                            <div class="data-val" style="color: var(--negative);">{{ summary.cvar_95 }}</div>
-                        </div>
-                        <div class="data-item">
-                            <div class="data-label data-label-tooltip">Expected Max Drawdown (95%)
-                                <span class="tooltip-text">The 95th percentile worst-case max drawdown calculated across
-                                    10,000 bootstrapped alternative historical paths. Evaluates tail risk over the
-                                    entire portfolio history.</span>
-                            </div>
-                            <div class="data-val" style="color: var(--negative);">{{ summary.expected_max_dd_95 }}</div>
-                        </div>
-                        <div class="data-item">
-                            <div class="data-label data-label-tooltip">Ulcer Index
-                                <span class="tooltip-text">Measures both the depth and duration of drawdowns (RMS of
-                                    percentage drawdowns). Lower is better. Unlike Max Drawdown, it penalises long,
-                                    sustained declines.</span>
-                            </div>
-                            <div class="data-val">{{ summary.ulcer_index }}</div>
-                        </div>
-                        <div class="data-item">
-                            <div class="data-label data-label-tooltip">Avg Time to Recovery
-                                <span class="tooltip-text">The average number of trading days it takes for the portfolio
-                                    to reach a new high after entering a drawdown.</span>
-                            </div>
-                            <div class="data-val">{{ summary.avg_ttr }}</div>
-                        </div>
-                        <div class="data-item">
-                            <div class="data-label data-label-tooltip">Max Time to Recovery
-                                <span class="tooltip-text">The longest drawdown recovery period observed. If still in a
-                                    drawdown, this reflects the ongoing duration.</span>
-                            </div>
-                            <div class="data-val">{{ summary.max_ttr }}</div>
-                        </div>
-                    </div>
-
-                    <h3 style="margin-top: 25px;">Composition Profile</h3>
-                    <div class="data-grid">
-                        <div class="data-item" style="grid-column: span 2;">
-                            <div class="data-label">Asset Allocation</div>
-                            <div class="data-val" style="font-size: 14px;">{{ summary.asset_alloc_str }}</div>
-                        </div>
-                        <div class="data-item" style="grid-column: span 2;">
-                            <div class="data-label">Top 3 Sectors</div>
-                            <div class="data-val" style="font-size: 14px;">{{ summary.sector_alloc_str }}</div>
-                        </div>
-                        <div class="data-item">
-                            <div class="data-label">Top 10 Concentration</div>
-                            <div class="data-val">{{ summary.top_10_pct }}</div>
-                        </div>
-                        <div class="data-item">
-                            <div class="data-label">Total Holdings</div>
-                            <div class="data-val">{{ summary.num_holdings }}</div>
                         </div>
                     </div>
                 </div>
@@ -662,54 +710,50 @@
         </div>
 
         <div id="Quant" class="tab-content">
-            <div class="card">
-                <h2 class="card-title">Fama-French 3-Factor Regression</h2>
-                <p style="font-size: 13px; color: var(--text-muted); padding: 0 20px;">
-                    Analysis of excess portfolio returns against the Market (Mkt-RF), Size (SMB), and Value (HML)
-                    premiums.
-                    A statistically significant positive Alpha implies genuine outperformance not explained by these
-                    primary risk factors.
+            <div class="content-card">
+                <h3>Factor Exposure (Fama-French)</h3>
+                <p style="font-size: 13px; color: var(--text-muted); margin-top: -10px; margin-bottom: 15px;">
+                    Analysis of excess portfolio returns against Market (Mkt-RF), Size (SMB), and Value (HML) premiums.
+                    Positive Alpha implies outperformance not explained by these primary risk factors.
                 </p>
-                <div class="chart-container" style="min-height: 420px; padding: 10px;">
+                <div class="plot-container" style="min-height: 420px;">
                     {{ factor_analysis_html | safe }}
                 </div>
             </div>
 
-            <div class="card" style="margin-top: 20px;">
-                <h2 class="card-title">Monte Carlo Risk Analysis</h2>
-                <p style="font-size: 13px; color: var(--text-muted); padding: 0 20px;">
-                    A comprehensive simulation of 10,000 runs evaluating portfolio robustness.
-                    <strong>Top:</strong> A spaghetti plot of alternative equity curves generated by bootstrapping
-                    historical daily returns.
-                    <strong>Bottom Left:</strong> The distribution of Max Drawdowns across those alternative paths
-                    to establish a 95% worst-case expectation.
-                    <strong>Bottom Right:</strong> A permutation test (null hypothesis testing) to determine if the
-                    portfolio's Sharpe Ratio is statistically significant (p < 0.05). </p>
-                        <div class="chart-container" style="min-height: 770px; padding: 10px;">
-                            {{ monte_carlo_html | safe }}
-                        </div>
+            <div class="content-card">
+                <h3>Monte Carlo Simulation</h3>
+                <p style="font-size: 13px; color: var(--text-muted); margin-top: -10px; margin-bottom: 15px;">
+                    A simulation of 10,000 runs evaluating portfolio robustness. The top plot shows alternative equity
+                    curves;
+                    bottom plots show the distribution of Max Drawdowns and the statistical significance of the Sharpe
+                    Ratio.
+                </p>
+                <div class="plot-container" style="min-height: 770px;">
+                    {{ monte_carlo_html | safe }}
+                </div>
             </div>
 
-            <div class="card" style="margin-top: 20px;">
-                <h2 class="card-title">Rolling Analysis</h2>
-                <p style="font-size: 13px; color: var(--text-muted); padding: 0 20px;">
-                    Tracks portfolio performance metrics (Beta, Volatility, Sharpe) over a rolling 6-month window. This
-                    reveals how risk and reward characteristics evolve over different market regimes.
+            <div class="content-card">
+                <h3>Rolling Analysis</h3>
+                <p style="font-size: 13px; color: var(--text-muted); margin-top: -10px; margin-bottom: 15px;">
+                    Tracks portfolio metrics (Beta, Volatility, Sharpe) over a rolling window to reveal how risk and
+                    reward characteristics evolve over different market regimes.
                 </p>
-                <div class="chart-container">
+                <div class="plot-container">
                     {{ quant_html | safe }}
                 </div>
             </div>
         </div>
 
         <div id="Trades_Perf" class="tab-content">
-            <div class="card">
-                <h2 class="card-title">Trade & Execution Analytics</h2>
-                <p style="font-size: 13px; color: var(--text-muted); padding: 0 20px;">
+            <div class="content-card">
+                <h3>Trade Performance</h3>
+                <p style="font-size: 13px; color: var(--text-muted); margin-top: -10px; margin-bottom: 15px;">
                     Analysis of completed round-trip trades (FIFO matching). This evaluates execution efficiency, profit
-                    distribution, and strategy expectancy rather than just holding period returns.
+                    distribution, and strategy expectancy.
                 </p>
-                <div class="chart-container" style="min-height: 700px; padding: 10px;">
+                <div class="plot-container" style="min-height: 700px;">
                     {{ trade_analysis_html | safe }}
                 </div>
             </div>
