@@ -13,6 +13,11 @@
         href="https://cdn.datatables.net/responsive/2.4.1/css/responsive.dataTables.min.css">
 
     <style>
+        html {
+            overflow-y: scroll;
+            /* Prevents horizontal shift when switching between long and short tabs */
+        }
+
         :root {
             /* Premium Fintech Color Palette */
             --bg-body: #f3f4f6;
@@ -270,6 +275,8 @@
         table.dataTable {
             font-size: 14px;
             border-collapse: collapse;
+            width: 100% !important;
+            /* Forces the table to stay within container */
         }
 
         table.dataTable thead th {
@@ -801,6 +808,13 @@
 
         // 2. Tab Switching Logic
         function openTab(evt, tabName) {
+            const currentTab = document.getElementById(tabName);
+
+            // If already active, don't do anything (prevents runaway width issues)
+            if (currentTab.classList.contains('active') && evt.currentTarget.classList.contains('active')) {
+                return;
+            }
+
             // Hide all tab contents
             const tabcontent = document.getElementsByClassName("tab-content");
             for (let i = 0; i < tabcontent.length; i++) {
@@ -814,28 +828,27 @@
             }
 
             // Show the current tab
-            document.getElementById(tabName).classList.add("active");
+            currentTab.classList.add("active");
             evt.currentTarget.classList.add("active");
 
             // Wait slightly longer for the DOM to register the 'display: block'
             setTimeout(() => {
-                // 1. Trigger general window resize
+                // 1. Trigger general window resize to help Charts
                 window.dispatchEvent(new Event('resize'));
 
-                // 2. Explicitly force Plotly to recalculate the bounding boxes for Pie labels
+                // 2. Explicitly force Plotly to recalculate bounding boxes
                 const plotlyDivs = document.querySelectorAll('.js-plotly-plot');
                 plotlyDivs.forEach(div => {
                     if (typeof Plotly !== 'undefined') {
-                        // This forces a hard redraw of the labels and lines
                         Plotly.Plots.resize(div);
                     }
                 });
 
-                // 3. Resize DataTables
+                // 3. Resize DataTables (only need to do this when switching)
                 if ($.fn.DataTable) {
                     $('.dataTable').DataTable().columns.adjust().responsive.recalc();
                 }
-            }, 150); // Increased to 150ms to ensure the tab is fully visible first
+            }, 100);
         }
     </script>
 </body>
