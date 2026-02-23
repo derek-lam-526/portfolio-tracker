@@ -369,6 +369,7 @@
             <button class="tab-button" onclick="openTab(event, 'Charts')">Charts</button>
             <button class="tab-button" onclick="openTab(event, 'RiskAnalysis')">Risk Analysis</button>
             <button class="tab-button" onclick="openTab(event, 'Quant')">Quantitative Analysis</button>
+            <button class="tab-button" onclick="openTab(event, 'Trades_Perf')">Trade Performance</button>
             <button class="tab-button" onclick="openTab(event, 'Allocation')">Current Allocation</button>
             <button class="tab-button" onclick="openTab(event, 'Trades')">Trade History</button>
 
@@ -467,6 +468,53 @@
                             </div>
                             <div class="data-val">{{ summary.ff_r_squared }}</div>
                         </div>
+                        <div class="data-item">
+                            <div class="data-label data-label-tooltip">Sharpe p-value
+                                <span class="tooltip-text">Statistical significance of the portfolio's Sharpe ratio
+                                    using a Monte Carlo permutation test (10,000 runs). A value < 0.05 indicates the
+                                        risk-adjusted returns are likely not due to random chance.</span>
+                            </div>
+                            <div class="data-val">{{ summary.mc_p_value }}</div>
+                        </div>
+                    </div>
+
+                    <h3 style="margin-top: 25px;">Trade Performance Analytics</h3>
+                    <div class="data-grid">
+                        <div class="data-item">
+                            <div class="data-label data-label-tooltip">Total Closed Trades
+                                <span class="tooltip-text">Number of completed buy-to-sell cycles matched using FIFO
+                                    logic.</span>
+                            </div>
+                            <div class="data-val">{{ summary.total_trades }}</div>
+                        </div>
+                        <div class="data-item">
+                            <div class="data-label data-label-tooltip">Hit Rate (Win %)
+                                <span class="tooltip-text">Percentage of closed trades that resulted in a net profit
+                                    after fees.</span>
+                            </div>
+                            <div class="data-val">{{ summary.win_rate }}</div>
+                        </div>
+                        <div class="data-item">
+                            <div class="data-label data-label-tooltip">Profit Factor
+                                <span class="tooltip-text">Gross Profits / Gross Losses. A value > 1.0 means the
+                                    strategy is profitable.</span>
+                            </div>
+                            <div class="data-val">{{ summary.profit_factor }}</div>
+                        </div>
+                        <div class="data-item">
+                            <div class="data-label data-label-tooltip">Expectancy
+                                <span class="tooltip-text">The average dollar amount you expect to win or lose per
+                                    trade.</span>
+                            </div>
+                            <div class="data-val">{{ summary.expectancy }}</div>
+                        </div>
+                        <div class="data-item" style="grid-column: span 2;">
+                            <div class="data-label data-label-tooltip">Total Realized PnL
+                                <span class="tooltip-text">Cumulative net profit or loss from all closed positions after
+                                    accounting for fees.</span>
+                            </div>
+                            <div class="data-val">{{ summary.total_realized_pnl_html | safe }}</div>
+                        </div>
                     </div>
 
                     <h3 style="margin-top: 25px;">Advanced Risk Profile</h3>
@@ -492,6 +540,14 @@
                                     threshold.</span>
                             </div>
                             <div class="data-val" style="color: var(--negative);">{{ summary.cvar_95 }}</div>
+                        </div>
+                        <div class="data-item">
+                            <div class="data-label data-label-tooltip">Expected Max Drawdown (95%)
+                                <span class="tooltip-text">The 95th percentile worst-case max drawdown calculated across
+                                    10,000 bootstrapped alternative historical paths. Evaluates tail risk over the
+                                    entire portfolio history.</span>
+                            </div>
+                            <div class="data-val" style="color: var(--negative);">{{ summary.expected_max_dd_95 }}</div>
                         </div>
                         <div class="data-item">
                             <div class="data-label data-label-tooltip">Ulcer Index
@@ -543,18 +599,34 @@
         <div id="Charts" class="tab-content">
             <div class="content-card">
                 <h3>Total Profit/Loss Over Time</h3>
+                <p style="font-size: 13px; color: var(--text-muted); margin-top: -10px; margin-bottom: 15px;">
+                    Tracks the cumulative growth of your portfolio in nominal USD terms. This reflects the total change
+                    in equity weight (including cash injections) over the selected history.
+                </p>
                 <div class="plot-container">{{ wealth_html | safe }}</div>
             </div>
             <div class="content-card">
                 <h3>Drawdown History</h3>
+                <p style="font-size: 13px; color: var(--text-muted); margin-top: -10px; margin-bottom: 15px;">
+                    Visualizes the peak-to-trough decline of the portfolio. This chart highlights the severity and
+                    duration of historical loss periods (underwater periods).
+                </p>
                 <div class="plot-container" style="min-height: 250px;">{{ drawdown_html | safe }}</div>
             </div>
             <div class="content-card">
                 <h3>Returns Distribution</h3>
+                <p style="font-size: 13px; color: var(--text-muted); margin-top: -10px; margin-bottom: 15px;">
+                    Daily percentage returns plotted over time. This helps identify periods of high volatility (return
+                    clusters) and individual outlier performance days.
+                </p>
                 <div class="plot-container">{{ returns_html | safe }}</div>
             </div>
             <div class="content-card">
                 <h3>Current Allocation</h3>
+                <p style="font-size: 13px; color: var(--text-muted); margin-top: -10px; margin-bottom: 15px;">
+                    Breakdown of current holdings by weight. Inner ring shows sector/category grouping, outer ring shows
+                    individual ticker weights.
+                </p>
                 <div class="plot-container">{{ alloc_html | safe }}</div>
             </div>
         </div>
@@ -602,10 +674,43 @@
                     {{ factor_analysis_html | safe }}
                 </div>
             </div>
+
+            <div class="card" style="margin-top: 20px;">
+                <h2 class="card-title">Monte Carlo Risk Analysis</h2>
+                <p style="font-size: 13px; color: var(--text-muted); padding: 0 20px;">
+                    A comprehensive simulation of 10,000 runs evaluating portfolio robustness.
+                    <strong>Top:</strong> A spaghetti plot of alternative equity curves generated by bootstrapping
+                    historical daily returns.
+                    <strong>Bottom Left:</strong> The distribution of Max Drawdowns across those alternative paths
+                    to establish a 95% worst-case expectation.
+                    <strong>Bottom Right:</strong> A permutation test (null hypothesis testing) to determine if the
+                    portfolio's Sharpe Ratio is statistically significant (p < 0.05). </p>
+                        <div class="chart-container" style="min-height: 770px; padding: 10px;">
+                            {{ monte_carlo_html | safe }}
+                        </div>
+            </div>
+
             <div class="card" style="margin-top: 20px;">
                 <h2 class="card-title">Rolling Analysis</h2>
+                <p style="font-size: 13px; color: var(--text-muted); padding: 0 20px;">
+                    Tracks portfolio performance metrics (Beta, Volatility, Sharpe) over a rolling 6-month window. This
+                    reveals how risk and reward characteristics evolve over different market regimes.
+                </p>
                 <div class="chart-container">
                     {{ quant_html | safe }}
+                </div>
+            </div>
+        </div>
+
+        <div id="Trades_Perf" class="tab-content">
+            <div class="card">
+                <h2 class="card-title">Trade & Execution Analytics</h2>
+                <p style="font-size: 13px; color: var(--text-muted); padding: 0 20px;">
+                    Analysis of completed round-trip trades (FIFO matching). This evaluates execution efficiency, profit
+                    distribution, and strategy expectancy rather than just holding period returns.
+                </p>
+                <div class="chart-container" style="min-height: 700px; padding: 10px;">
+                    {{ trade_analysis_html | safe }}
                 </div>
             </div>
         </div>

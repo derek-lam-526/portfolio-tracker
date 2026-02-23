@@ -7,10 +7,14 @@ import webbrowser
 import argparse
 import paramiko
 
+import urllib.request
+
 import config 
 import data_manager
 import portfolio_tracker as tracker
 import portfolio_analyzer as analyzer
+import portfolio_stats as stats
+import trade_analyzer
 import report_manager
 
 pd.set_option('display.max_rows', 100)
@@ -94,9 +98,16 @@ def main():
     fig_correlation = analyzer.get_correlation_heatmap(portfolio_tracker, current_holdings, show=False)
     fig_beta_exp, df_beta = analyzer.get_beta_exposure_plot(portfolio_tracker, current_holdings, current_values, show=False)
     fig_factor, factor_results = analyzer.get_factor_analysis_plot(df_history, show=False)
+    fig_mc, mc_results = stats.get_monte_carlo_plot(df_history['Daily_Return'], n_iterations=10000, show=False)
+    
+    # Trade Analysis
+    df_completed_trades = trade_analyzer.match_trades(df_trades)
+    trade_results = trade_analyzer.calculate_trade_metrics(df_completed_trades)
+    fig_trades = trade_analyzer.get_trade_analysis_plots(df_completed_trades)
 
     # Summary sheet 
-    summary_sheet = analyzer.get_summary_sheet(df_history, category_values, sector_values, current_values, current_holdings, factor_results=factor_results)
+    summary_sheet = analyzer.get_summary_sheet(df_history, category_values, sector_values, current_values, current_holdings, 
+                                              factor_results=factor_results, mc_results=mc_results, trade_results=trade_results)
 
     figs = {
         "wealth": fig_wealth,
@@ -108,6 +119,8 @@ def main():
         "correlation": fig_correlation,
         "beta_exposure": fig_beta_exp,
         "factor_analysis": fig_factor,
+        "monte_carlo": fig_mc,
+        "trade_analysis": fig_trades,
         "summary": summary_sheet
     }
 
@@ -137,9 +150,16 @@ def test():
     fig_correlation = analyzer.get_correlation_heatmap(portfolio_tracker, current_holdings, show=False)
     fig_beta_exp, df_beta = analyzer.get_beta_exposure_plot(portfolio_tracker, current_holdings, current_values, show=False)
     fig_factor, factor_results = analyzer.get_factor_analysis_plot(df_history, show=False)
+    fig_mc, mc_results = stats.get_monte_carlo_plot(df_history['Daily_Return'], n_iterations=10000, show=False)
+
+    # Trade Analysis
+    df_completed_trades = trade_analyzer.match_trades(df_trades)
+    trade_results = trade_analyzer.calculate_trade_metrics(df_completed_trades)
+    fig_trades = trade_analyzer.get_trade_analysis_plots(df_completed_trades)
 
     # Summary sheet 
-    summary_sheet = analyzer.get_summary_sheet(df_history, category_values, sector_values, current_values, current_holdings, factor_results=factor_results)
+    summary_sheet = analyzer.get_summary_sheet(df_history, category_values, sector_values, current_values, current_holdings, 
+                                              factor_results=factor_results, mc_results=mc_results, trade_results=trade_results)
 
     figs = {
         "wealth": fig_wealth,
@@ -151,6 +171,8 @@ def test():
         "correlation": fig_correlation,
         "beta_exposure": fig_beta_exp,
         "factor_analysis": fig_factor,
+        "monte_carlo": fig_mc,
+        "trade_analysis": fig_trades,
         "summary": summary_sheet
     }
 

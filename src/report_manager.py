@@ -47,6 +47,14 @@ def create_report(figs, df_alloc, df_trades, output_dir=config.OUTPUT_DIR):
         full_html=False, include_plotlyjs=False,
         default_width='100%', default_height='420px', config=plotly_config
     )
+    monte_carlo_html = figs["monte_carlo"].to_html(
+        full_html=False, include_plotlyjs=False,
+        default_width='100%', default_height='750px', config=plotly_config
+    )
+    trade_analysis_html = figs["trade_analysis"].to_html(
+        full_html=False, include_plotlyjs=False,
+        default_width='100%', default_height='700px', config=plotly_config
+    )
 
     # Create interactive tables
     alloc_table_html = df_alloc.to_html(
@@ -76,6 +84,8 @@ def create_report(figs, df_alloc, df_trades, output_dir=config.OUTPUT_DIR):
         correlation_html=correlation_html,
         beta_exposure_html=beta_exposure_html,
         factor_analysis_html=factor_analysis_html,
+        monte_carlo_html=monte_carlo_html,
+        trade_analysis_html=trade_analysis_html,
         trades_table_html=trades_table_html
     )
     

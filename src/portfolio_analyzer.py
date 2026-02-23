@@ -1297,7 +1297,7 @@ def get_factor_analysis_plot(history_df, show=False):
 
     return fig, factor_results
 
-def get_summary_sheet(history_df, category_values, sector_values, current_values, current_holdings, factor_results=None):
+def get_summary_sheet(history_df, category_values, sector_values, current_values, current_holdings, factor_results=None, mc_results=None, trade_results=None):
     # Fetch HKD Rate
     try:
         hkd_ticker = yf.Ticker("HKD=X")
@@ -1455,6 +1455,17 @@ def get_summary_sheet(history_df, category_values, sector_values, current_values
         "ff_smb": f"{factor_results.get('smb_beta', 0):.4f}" if factor_results else "N/A",
         "ff_hml": f"{factor_results.get('hml_beta', 0):.4f}" if factor_results else "N/A",
         "ff_r_squared": f"{factor_results.get('r_squared', 0):.4f}" if factor_results else "N/A",
+        # Monte Carlo Significance & Risk
+        "mc_p_value": f"{mc_results.get('p_value', 1):.4f}" if mc_results and not np.isnan(mc_results.get('p_value', 1)) else "N/A",
+        "expected_max_dd_95": f"{mc_results.get('expected_max_dd_95', 0):.2%}" if mc_results and not np.isnan(mc_results.get('expected_max_dd_95', 0)) else "N/A",
+        # Trade Analysis Metrics
+        "total_trades": trade_results.get('total_trades', 0) if trade_results else "N/A",
+        "win_rate": f"{trade_results.get('hit_rate', 0):.1%}" if trade_results else "N/A",
+        "avg_win": f"${trade_results.get('avg_win', 0):,.2f}" if trade_results else "N/A",
+        "avg_loss": f"${trade_results.get('avg_loss', 0):,.2f}" if trade_results else "N/A",
+        "profit_factor": f"{trade_results.get('profit_factor', 0):.2f}" if trade_results else "N/A",
+        "expectancy": f"${trade_results.get('expectancy', 0):,.2f}" if trade_results else "N/A",
+        "total_realized_pnl_html": format_val(trade_results.get('total_realized_pnl', 0), show_hkd=True) if trade_results else "N/A"
     }
 
     return summary_data
