@@ -3,6 +3,7 @@ import config
 import pandas as pd 
 import numpy as np 
 from scipy import stats
+from scipy.stats import skew, kurtosis as sp_kurtosis
 import yfinance as yf 
 from datetime import datetime
 import matplotlib.pyplot as plt
@@ -164,6 +165,60 @@ def calculate_performance_metrics(history_df):
     
     first_date = history_df.index[0]
 
+    # --- Advanced Risk & Distribution Metrics ---
+    daily_returns = history_df['Daily_Return'].dropna()
+
+    # Skewness & Excess Kurtosis
+    if len(daily_returns) > 3:
+        return_skewness = skew(daily_returns, bias=False)
+        return_kurtosis = sp_kurtosis(daily_returns, bias=False)  # Excess kurtosis (normal = 0)
+    else:
+        return_skewness = np.nan
+        return_kurtosis = np.nan
+
+    # Conditional VaR / Expected Shortfall (95%)
+    if len(daily_returns) > 10:
+        var_threshold = np.percentile(daily_returns, 5)
+        tail_returns = daily_returns[daily_returns <= var_threshold]
+        cvar_95 = tail_returns.mean() if len(tail_returns) > 0 else np.nan
+    else:
+        cvar_95 = np.nan
+    
+    # Ulcer Index
+    if len(history_df) > 1:
+        cum_returns = (1 + daily_returns).cumprod()
+        running_peak = cum_returns.cummax()
+        pct_drawdowns = ((cum_returns - running_peak) / running_peak) * 100  # in percent
+        ulcer_index = np.sqrt((pct_drawdowns ** 2).mean())
+    else:
+        ulcer_index = np.nan
+    
+    # Time to Recovery (TTR)
+    if len(history_df) > 1:
+        equity = history_df['Total_Equity']
+        eq_running_max = equity.cummax()
+        is_in_drawdown = equity < eq_running_max
+        
+        recovery_days = []
+        current_dd_start = None
+        for i in range(len(is_in_drawdown)):
+            if is_in_drawdown.iloc[i]:
+                if current_dd_start is None:
+                    current_dd_start = i
+            else:
+                if current_dd_start is not None:
+                    recovery_days.append(i - current_dd_start)
+                    current_dd_start = None
+        # If still in drawdown at the end, record that too
+        if current_dd_start is not None:
+            recovery_days.append(len(is_in_drawdown) - current_dd_start)
+        
+        avg_ttr = np.mean(recovery_days) if recovery_days else 0
+        max_ttr = max(recovery_days) if recovery_days else 0
+    else:
+        avg_ttr = 0
+        max_ttr = 0
+
     return {
         'first_date': first_date,
         'sharpe_ratio': sharpe_ratio,
@@ -182,7 +237,14 @@ def calculate_performance_metrics(history_df):
         'benchmark_return': benchmark_total_return if 'benchmark_total_return' in locals() else np.nan,
         'tracking_error': tracking_error if 'tracking_error' in locals() else np.nan,
         'down_capture': down_capture if 'down_capture' in locals() else np.nan,
-        'up_capture': up_capture if 'up_capture' in locals() else np.nan
+        'up_capture': up_capture if 'up_capture' in locals() else np.nan,
+        # Advanced Risk Metrics
+        'skewness': return_skewness,
+        'kurtosis': return_kurtosis,
+        'cvar_95': cvar_95,
+        'ulcer_index': ulcer_index,
+        'avg_ttr': avg_ttr,
+        'max_ttr': max_ttr,
     }
 
 def get_pnl_plot(history_df, show = False):
@@ -738,6 +800,76 @@ def get_quant_plots(history_df, show=False, windows=[21, 63]):
         
     return fig
 
+def get_distribution_plot(history_df, show=False):
+    """Creates a histogram of daily returns overlaid with a fitted normal distribution,
+    annotated with VaR and CVaR thresholds."""
+    daily_returns = history_df['Daily_Return'].dropna() * 100  # Convert to percent
+
+    mean_ret = daily_returns.mean()
+    std_ret = daily_returns.std()
+
+    fig = go.Figure()
+
+    # Histogram of actual returns
+    fig.add_trace(go.Histogram(
+        x=daily_returns,
+        nbinsx=80,
+        name='Daily Returns',
+        marker_color='rgba(37, 99, 235, 0.6)',
+        marker_line=dict(color='rgba(37, 99, 235, 0.9)', width=0.5),
+        histnorm='probability density',
+        hovertemplate='Return: %{x:.2f}%<br>Density: %{y:.4f}'
+    ))
+
+    # Fitted Normal Distribution curve
+    x_range = np.linspace(daily_returns.min(), daily_returns.max(), 300)
+    normal_pdf = (1 / (std_ret * np.sqrt(2 * np.pi))) * np.exp(-0.5 * ((x_range - mean_ret) / std_ret) ** 2)
+
+    fig.add_trace(go.Scatter(
+        x=x_range,
+        y=normal_pdf,
+        mode='lines',
+        name=f'Normal (μ={mean_ret:.3f}%, σ={std_ret:.3f}%)',
+        line=dict(color='#D32F2F', width=2, dash='dash')
+    ))
+
+    # VaR (95%) vertical line
+    var_95 = np.percentile(daily_returns, 5)
+    fig.add_vline(
+        x=var_95, line_dash="dash", line_color="#EF6C00", line_width=2,
+        annotation_text=f"VaR 95%: {var_95:.2f}%",
+        annotation_position="top right",
+        annotation_font=dict(color="#EF6C00", size=11)
+    )
+
+    # CVaR (Expected Shortfall) vertical line
+    tail = daily_returns[daily_returns <= var_95]
+    if len(tail) > 0:
+        cvar = tail.mean()
+        fig.add_vline(
+            x=cvar, line_dash="dot", line_color="#B71C1C", line_width=2,
+            annotation_text=f"CVaR 95%: {cvar:.2f}%",
+            annotation_position="top left",
+            annotation_font=dict(color="#B71C1C", size=11)
+        )
+
+    fig.update_layout(
+        template='plotly_white',
+        title='Daily Return Distribution vs. Normal Fit',
+        xaxis_title='Daily Return (%)',
+        yaxis_title='Probability Density',
+        showlegend=True,
+        legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1),
+        height=450,
+        hovermode='x unified',
+        margin=dict(t=80, b=50, l=50, r=30)
+    )
+
+    if show:
+        fig.show()
+
+    return fig
+
 def get_summary_sheet(history_df, category_values, sector_values, current_values, current_holdings):
     # Fetch HKD Rate
     try:
@@ -773,6 +905,12 @@ def get_summary_sheet(history_df, category_values, sector_values, current_values
     var_95_percent_return = metrics.get('var_95_percent_return',0)
     down_capture = metrics.get('down_capture', 0)
     up_capture = metrics.get('up_capture', 0)
+    skewness = metrics.get('skewness', np.nan)
+    kurtosis_val = metrics.get('kurtosis', np.nan)
+    cvar_95 = metrics.get('cvar_95', np.nan)
+    ulcer_index = metrics.get('ulcer_index', np.nan)
+    avg_ttr = metrics.get('avg_ttr', 0)
+    max_ttr = metrics.get('max_ttr', 0)
     
     try:
         total_val = current_equity  
@@ -875,7 +1013,14 @@ def get_summary_sheet(history_df, category_values, sector_values, current_values
         "sector_alloc_str": sector_alloc_str,
         "top_10_pct": f"{top_10_pct:.1%}",
         "num_holdings": num_holdings,
-        "benchmark_name": config.METRICS_BENCHMARK
+        "benchmark_name": config.METRICS_BENCHMARK,
+        # Advanced Risk Metrics
+        "skewness": f"{skewness:.3f}" if not np.isnan(skewness) else "N/A",
+        "kurtosis": f"{kurtosis_val:.3f}" if not np.isnan(kurtosis_val) else "N/A",
+        "cvar_95": f"{cvar_95:.2%}" if not np.isnan(cvar_95) else "N/A",
+        "ulcer_index": f"{ulcer_index:.3f}" if not np.isnan(ulcer_index) else "N/A",
+        "avg_ttr": f"{avg_ttr:.0f} days",
+        "max_ttr": f"{max_ttr:.0f} days",
     }
 
     return summary_data

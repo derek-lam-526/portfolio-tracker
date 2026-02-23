@@ -1,15 +1,17 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="utf-8">
     <title>Portfolio Analysis Report</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    
+
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    
+
     <link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/1.13.4/css/jquery.dataTables.min.css">
-    <link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/responsive/2.4.1/css/responsive.dataTables.min.css">
-    
+    <link rel="stylesheet" type="text/css"
+        href="https://cdn.datatables.net/responsive/2.4.1/css/responsive.dataTables.min.css">
+
     <style>
         :root {
             /* Premium Fintech Color Palette */
@@ -48,9 +50,20 @@
             align-items: flex-end;
             margin-bottom: 25px;
         }
-        .header-title h1 { margin: 0 0 5px 0; font-size: 24px; color: var(--text-main); font-weight: 700; }
-        .header-title p { margin: 0; color: var(--text-muted); font-size: 14px; }
-        
+
+        .header-title h1 {
+            margin: 0 0 5px 0;
+            font-size: 24px;
+            color: var(--text-main);
+            font-weight: 700;
+        }
+
+        .header-title p {
+            margin: 0;
+            color: var(--text-muted);
+            font-size: 14px;
+        }
+
         /* Always-Visible KPI Cards */
         .kpi-row {
             display: grid;
@@ -58,6 +71,7 @@
             gap: 20px;
             margin-bottom: 30px;
         }
+
         .kpi-card {
             background: var(--bg-card);
             border-radius: 12px;
@@ -66,18 +80,37 @@
             border: 1px solid var(--border-light);
             border-top: 4px solid var(--primary);
         }
-        .kpi-label { font-size: 12px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.5px; margin-bottom: 8px; }
-        .kpi-value { font-size: 28px; font-weight: 700; color: var(--text-main); }
-        .kpi-sub { font-size: 13px; color: var(--text-muted); margin-top: 5px; }
+
+        .kpi-label {
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+        }
+
+        .kpi-value {
+            font-size: 28px;
+            font-weight: 700;
+            color: var(--text-main);
+        }
+
+        .kpi-sub {
+            font-size: 13px;
+            color: var(--text-muted);
+            margin-top: 5px;
+        }
 
         /* Modern Tabs Navigation */
-        .tabs { 
+        .tabs {
             display: flex;
             gap: 10px;
             margin-bottom: 25px;
             border-bottom: 1px solid var(--border-light);
             padding-bottom: 2px;
         }
+
         .tab-button {
             padding: 10px 20px;
             background: transparent;
@@ -90,25 +123,47 @@
             font-family: 'Inter', sans-serif;
             transition: all 0.2s ease;
         }
-        .tab-button:hover { color: var(--primary); }
+
+        .tab-button:hover {
+            color: var(--primary);
+        }
+
         .tab-button.active {
             color: var(--primary);
             border-bottom: 3px solid var(--primary);
         }
 
         /* Tab Contents & Cards */
-        .tab-content { display: none; animation: fadeIn 0.4s ease; }
-        .tab-content.active { display: block; }
+        .tab-content {
+            display: none;
+            animation: fadeIn 0.4s ease;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
 
         /* Responsive Table Wrapper */
         .table-responsive {
             width: 100%;
             overflow-x: auto;
-            -webkit-overflow-scrolling: touch; /* Enables smooth momentum scrolling on iPhones */
-            border-radius: 8px; /* Keeps the edges looking clean while scrolling */
+            -webkit-overflow-scrolling: touch;
+            /* Enables smooth momentum scrolling on iPhones */
+            border-radius: 8px;
+            /* Keeps the edges looking clean while scrolling */
         }
 
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(5px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
 
         .content-card {
             background: var(--bg-card);
@@ -119,6 +174,7 @@
             margin-bottom: 25px;
             min-width: 0;
         }
+
         .content-card h3 {
             margin-top: 0;
             font-size: 16px;
@@ -134,44 +190,140 @@
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
             gap: 20px;
         }
+
         .responsive-2-col {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(min(100%, 450px), 1fr));
             gap: 25px;
         }
+
         .data-item {
             padding: 15px;
             background: var(--bg-body);
             border-radius: 8px;
         }
-        .data-label { font-size: 13px; color: var(--text-muted); margin-bottom: 5px; font-weight: 500; }
-        .data-val { font-size: 18px; font-weight: 600; color: var(--text-main); }
+
+        .data-label {
+            font-size: 13px;
+            color: var(--text-muted);
+            margin-bottom: 5px;
+            font-weight: 500;
+        }
+
+        .data-val {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--text-main);
+        }
 
         /* Plotly Containers */
-        .plot-container { 
-            width: 100%; 
-            min-height: 400px; 
-            touch-action: pan-y; 
+        .plot-container {
+            width: 100%;
+            min-height: 400px;
+            touch-action: pan-y;
         }
-        
+
+        /* Tooltip for metric labels */
+        .data-label-tooltip {
+            position: relative;
+            cursor: help;
+        }
+
+        .data-label-tooltip .tooltip-text {
+            visibility: hidden;
+            opacity: 0;
+            width: 260px;
+            background-color: #1f2937;
+            color: #f3f4f6;
+            font-size: 12px;
+            font-weight: 400;
+            text-align: left;
+            border-radius: 8px;
+            padding: 10px 12px;
+            position: absolute;
+            z-index: 100;
+            bottom: calc(100% + 8px);
+            left: 50%;
+            transform: translateX(-50%);
+            transition: opacity 0.2s ease, visibility 0.2s ease;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+            line-height: 1.5;
+        }
+
+        .data-label-tooltip .tooltip-text::after {
+            content: "";
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            margin-left: -5px;
+            border-width: 5px;
+            border-style: solid;
+            border-color: #1f2937 transparent transparent transparent;
+        }
+
+        .data-label-tooltip:hover .tooltip-text {
+            visibility: visible;
+            opacity: 1;
+        }
+
         /* DataTable Polish */
-        table.dataTable { font-size: 14px; border-collapse: collapse; }
-        table.dataTable thead th { background-color: #f9fafb; border-bottom: 2px solid var(--border-light) !important; color: var(--text-muted); font-weight: 600; }
-        table.dataTable.row-border tbody th, table.dataTable.row-border tbody td, table.dataTable.display tbody th, table.dataTable.display tbody td { border-top: 1px solid var(--border-light); }
+        table.dataTable {
+            font-size: 14px;
+            border-collapse: collapse;
+        }
+
+        table.dataTable thead th {
+            background-color: #f9fafb;
+            border-bottom: 2px solid var(--border-light) !important;
+            color: var(--text-muted);
+            font-weight: 600;
+        }
+
+        table.dataTable.row-border tbody th,
+        table.dataTable.row-border tbody td,
+        table.dataTable.display tbody th,
+        table.dataTable.display tbody td {
+            border-top: 1px solid var(--border-light);
+        }
 
         /* Mobile */
         @media (max-width: 768px) {
-            .header-row { flex-direction: column; align-items: flex-start; gap: 10px; }
-            .tabs { flex-wrap: wrap; border-bottom: none; }
-            .tab-button { width: 100%; text-align: left; background: var(--bg-card); border: 1px solid var(--border-light); border-radius: 6px; border-left: 4px solid transparent; margin-bottom: 5px; }
-            .tab-button.active { border-bottom: 1px solid var(--border-light); border-left: 4px solid var(--primary); }
-            .content-card { padding: 15px; }
+            .header-row {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 10px;
+            }
+
+            .tabs {
+                flex-wrap: wrap;
+                border-bottom: none;
+            }
+
+            .tab-button {
+                width: 100%;
+                text-align: left;
+                background: var(--bg-card);
+                border: 1px solid var(--border-light);
+                border-radius: 6px;
+                border-left: 4px solid transparent;
+                margin-bottom: 5px;
+            }
+
+            .tab-button.active {
+                border-bottom: 1px solid var(--border-light);
+                border-left: 4px solid var(--primary);
+            }
+
+            .content-card {
+                padding: 15px;
+            }
         }
     </style>
 </head>
+
 <body>
     <div class="container">
-        
+
         <div class="header-row">
             <div class="header-title">
                 <h1>Portfolio Intelligence</h1>
@@ -192,9 +344,12 @@
             <div class="kpi-card" style="border-top-color: var(--positive);">
                 <div class="kpi-label">Total Return</div>
                 <div class="kpi-value" style="font-size: 24px;">{{ summary.total_return_abs_html | safe }}</div>
-                <div class="kpi-sub" style="display: flex; gap: 15px; margin-top: 8px; border-top: 1px solid var(--border-light); padding-top: 8px;">
-                    <div><span style="font-size: 11px; text-transform: uppercase;">Nominal</span><br>{{ summary.total_return_pct_html | safe }}</div>
-                    <div><span style="font-size: 11px; text-transform: uppercase;">Cumulative</span><br>{{ summary.total_cum_return_html | safe }}</div>
+                <div class="kpi-sub"
+                    style="display: flex; gap: 15px; margin-top: 8px; border-top: 1px solid var(--border-light); padding-top: 8px;">
+                    <div><span style="font-size: 11px; text-transform: uppercase;">Nominal</span><br>{{
+                        summary.total_return_pct_html | safe }}</div>
+                    <div><span style="font-size: 11px; text-transform: uppercase;">Cumulative</span><br>{{
+                        summary.total_cum_return_html | safe }}</div>
                 </div>
             </div>
             <div class="kpi-card" style="border-top-color: #8b5cf6;">
@@ -208,14 +363,15 @@
                 <div class="kpi-sub">Volatility: {{ summary.volatility }}</div>
             </div>
         </div>
-        
+
         <div class="tabs">
             <button class="tab-button active" onclick="openTab(event, 'Summary')">Summary</button>
             <button class="tab-button" onclick="openTab(event, 'Charts')">Charts</button>
-            <button class="tab-button" onclick="openTab(event, 'Quant')">Quantitative Analysis</button> 
+            <button class="tab-button" onclick="openTab(event, 'RiskAnalysis')">Risk Analysis</button>
+            <button class="tab-button" onclick="openTab(event, 'Quant')">Quantitative Analysis</button>
             <button class="tab-button" onclick="openTab(event, 'Allocation')">Current Allocation</button>
             <button class="tab-button" onclick="openTab(event, 'Trades')">Trade History</button>
-            
+
         </div>
 
         <div id="Summary" class="tab-content active">
@@ -223,29 +379,121 @@
                 <div class="content-card" style="margin: 0;">
                     <h3>Performance Breakdown</h3>
                     <div class="data-grid">
-                        <div class="data-item"><div class="data-label">Market Value</div><div class="data-val">US$ {{ summary.current_market_value_usd }}</div></div>
-                        <div class="data-item"><div class="data-label">Cash Reserve</div><div class="data-val">US$ {{ summary.current_cash_usd }}</div></div>
-                        <div class="data-item"><div class="data-label">Nominal Return (%)</div><div class="data-val">{{ summary.total_return_pct_html | safe }}</div><div style="font-size:11px; color:#6b7280; margin-top:3px;">Simple ROI</div></div>
-                        <div class="data-item"><div class="data-label">Cumulative Return (%)</div><div class="data-val">{{ summary.total_cum_return_html | safe }}</div><div style="font-size:11px; color:#6b7280; margin-top:3px;">Cash-flow adjusted</div></div>
-                        <div class="data-item"><div class="data-label">Max Hist. Return</div><div class="data-val">{{ summary.max_return_html | safe }}</div></div>
-                        <div class="data-item"><div class="data-label">Benchmark Return</div><div class="data-val">{{ summary.benchmark_total_return }}</div></div>
+                        <div class="data-item">
+                            <div class="data-label">Market Value</div>
+                            <div class="data-val">US$ {{ summary.current_market_value_usd }}</div>
+                        </div>
+                        <div class="data-item">
+                            <div class="data-label">Cash Reserve</div>
+                            <div class="data-val">US$ {{ summary.current_cash_usd }}</div>
+                        </div>
+                        <div class="data-item">
+                            <div class="data-label">Nominal Return (%)</div>
+                            <div class="data-val">{{ summary.total_return_pct_html | safe }}</div>
+                            <div style="font-size:11px; color:#6b7280; margin-top:3px;">Simple ROI</div>
+                        </div>
+                        <div class="data-item">
+                            <div class="data-label">Cumulative Return (%)</div>
+                            <div class="data-val">{{ summary.total_cum_return_html | safe }}</div>
+                            <div style="font-size:11px; color:#6b7280; margin-top:3px;">Cash-flow adjusted</div>
+                        </div>
+                        <div class="data-item">
+                            <div class="data-label">Max Hist. Return</div>
+                            <div class="data-val">{{ summary.max_return_html | safe }}</div>
+                        </div>
+                        <div class="data-item">
+                            <div class="data-label">Benchmark Return</div>
+                            <div class="data-val">{{ summary.benchmark_total_return }}</div>
+                        </div>
                     </div>
                 </div>
 
                 <div class="content-card" style="margin: 0;">
                     <h3>Risk & Ratios</h3>
                     <div class="data-grid">
-                        <div class="data-item"><div class="data-label">Sharpe Ratio</div><div class="data-val">{{ summary.sharpe_ratio }}</div><div style="font-size:11px; color:#6b7280;">BM: {{ summary.benchmark_sharpe_ratio }}</div></div>
-                        <div class="data-item"><div class="data-label">Sortino Ratio</div><div class="data-val">{{ summary.sortino_ratio }}</div><div style="font-size:11px; color:#6b7280;">BM: {{ summary.benchmark_sortino_ratio }}</div></div>
-                        <div class="data-item"><div class="data-label">VaR (95% 1-Day)</div><div class="data-val" style="color: var(--negative);">{{ summary.var_95_percent_return }}</div></div>
+                        <div class="data-item">
+                            <div class="data-label">Sharpe Ratio</div>
+                            <div class="data-val">{{ summary.sharpe_ratio }}</div>
+                            <div style="font-size:11px; color:#6b7280;">BM: {{ summary.benchmark_sharpe_ratio }}</div>
+                        </div>
+                        <div class="data-item">
+                            <div class="data-label">Sortino Ratio</div>
+                            <div class="data-val">{{ summary.sortino_ratio }}</div>
+                            <div style="font-size:11px; color:#6b7280;">BM: {{ summary.benchmark_sortino_ratio }}</div>
+                        </div>
+                        <div class="data-item">
+                            <div class="data-label">VaR (95% 1-Day)</div>
+                            <div class="data-val" style="color: var(--negative);">{{ summary.var_95_percent_return }}
+                            </div>
+                        </div>
                     </div>
-                    
+
+                    <h3 style="margin-top: 25px;">Advanced Risk Profile</h3>
+                    <div class="data-grid">
+                        <div class="data-item">
+                            <div class="data-label data-label-tooltip">Skewness
+                                <span class="tooltip-text">Asymmetry of the return distribution. Negative skew =
+                                    frequent small gains with occasional large losses (typical for equities).</span>
+                            </div>
+                            <div class="data-val">{{ summary.skewness }}</div>
+                        </div>
+                        <div class="data-item">
+                            <div class="data-label data-label-tooltip">Excess Kurtosis
+                                <span class="tooltip-text">"Tail thickness" relative to normal distribution (normal =
+                                    0). Higher values = more frequent extreme events (fat tails).</span>
+                            </div>
+                            <div class="data-val">{{ summary.kurtosis }}</div>
+                        </div>
+                        <div class="data-item">
+                            <div class="data-label data-label-tooltip">CVaR / Expected Shortfall (95%)
+                                <span class="tooltip-text">The average loss on the worst 5% of trading days. More
+                                    informative than VaR because it quantifies the severity of tail events, not just the
+                                    threshold.</span>
+                            </div>
+                            <div class="data-val" style="color: var(--negative);">{{ summary.cvar_95 }}</div>
+                        </div>
+                        <div class="data-item">
+                            <div class="data-label data-label-tooltip">Ulcer Index
+                                <span class="tooltip-text">Measures both the depth and duration of drawdowns (RMS of
+                                    percentage drawdowns). Lower is better. Unlike Max Drawdown, it penalises long,
+                                    sustained declines.</span>
+                            </div>
+                            <div class="data-val">{{ summary.ulcer_index }}</div>
+                        </div>
+                        <div class="data-item">
+                            <div class="data-label data-label-tooltip">Avg Time to Recovery
+                                <span class="tooltip-text">The average number of trading days it takes for the portfolio
+                                    to reach a new high after entering a drawdown.</span>
+                            </div>
+                            <div class="data-val">{{ summary.avg_ttr }}</div>
+                        </div>
+                        <div class="data-item">
+                            <div class="data-label data-label-tooltip">Max Time to Recovery
+                                <span class="tooltip-text">The longest drawdown recovery period observed. If still in a
+                                    drawdown, this reflects the ongoing duration.</span>
+                            </div>
+                            <div class="data-val">{{ summary.max_ttr }}</div>
+                        </div>
+                    </div>
+
                     <h3 style="margin-top: 25px;">Composition Profile</h3>
                     <div class="data-grid">
-                        <div class="data-item" style="grid-column: span 2;"><div class="data-label">Asset Allocation</div><div class="data-val" style="font-size: 14px;">{{ summary.asset_alloc_str }}</div></div>
-                        <div class="data-item" style="grid-column: span 2;"><div class="data-label">Top 3 Sectors</div><div class="data-val" style="font-size: 14px;">{{ summary.sector_alloc_str }}</div></div>
-                        <div class="data-item"><div class="data-label">Top 10 Concentration</div><div class="data-val">{{ summary.top_10_pct }}</div></div>
-                        <div class="data-item"><div class="data-label">Total Holdings</div><div class="data-val">{{ summary.num_holdings }}</div></div>
+                        <div class="data-item" style="grid-column: span 2;">
+                            <div class="data-label">Asset Allocation</div>
+                            <div class="data-val" style="font-size: 14px;">{{ summary.asset_alloc_str }}</div>
+                        </div>
+                        <div class="data-item" style="grid-column: span 2;">
+                            <div class="data-label">Top 3 Sectors</div>
+                            <div class="data-val" style="font-size: 14px;">{{ summary.sector_alloc_str }}</div>
+                        </div>
+                        <div class="data-item">
+                            <div class="data-label">Top 10 Concentration</div>
+                            <div class="data-val">{{ summary.top_10_pct }}</div>
+                        </div>
+                        <div class="data-item">
+                            <div class="data-label">Total Holdings</div>
+                            <div class="data-val">{{ summary.num_holdings }}</div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -260,15 +508,24 @@
                 <h3>Drawdown History</h3>
                 <div class="plot-container" style="min-height: 250px;">{{ drawdown_html | safe }}</div>
             </div>
-            <div class="responsive-2-col">
-                <div class="content-card" style="margin: 0;">
-                    <h3>Returns Distribution</h3>
-                    <div class="plot-container">{{ returns_html | safe }}</div>
-                </div>
-                <div class="content-card" style="margin: 0;">
-                    <h3>Current Allocation</h3>
-                    <div class="plot-container">{{ alloc_html | safe }}</div>
-                </div>
+            <div class="content-card">
+                <h3>Returns Distribution</h3>
+                <div class="plot-container">{{ returns_html | safe }}</div>
+            </div>
+            <div class="content-card">
+                <h3>Current Allocation</h3>
+                <div class="plot-container">{{ alloc_html | safe }}</div>
+            </div>
+        </div>
+
+        <div id="RiskAnalysis" class="tab-content">
+            <div class="content-card">
+                <h3>Return Distribution Analysis</h3>
+                <p style="font-size: 13px; color: var(--text-muted); margin-top: -10px; margin-bottom: 15px;">
+                    Histogram of daily returns compared against a fitted Normal (Gaussian) distribution. Fat tails
+                    beyond the normal curve indicate higher-than-expected frequency of extreme returns.
+                </p>
+                <div class="plot-container" style="min-height: 400px;">{{ distribution_html | safe }}</div>
             </div>
         </div>
 
@@ -280,7 +537,7 @@
                 </div>
             </div>
         </div>
-        
+
         <div id="Allocation" class="tab-content">
             <div class="content-card">
                 <h3>Detailed Holdings</h3>
@@ -299,7 +556,7 @@
             </div>
         </div>
 
-        
+
     </div>
 
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
@@ -308,15 +565,15 @@
 
     <script>
         // 1. Initialize DataTables
-        $(document).ready(function() {
+        $(document).ready(function () {
             if ($('#alloc_table').length) {
                 $('#alloc_table').DataTable({ responsive: true, pageLength: 25 });
             }
             if ($('#trades_table').length) {
-                $('#trades_table').DataTable({ 
-                    responsive: true, 
+                $('#trades_table').DataTable({
+                    responsive: true,
                     pageLength: 25,
-                    order: [[0, "desc"]] 
+                    order: [[0, "desc"]]
                 });
             }
         });
@@ -328,13 +585,13 @@
             for (let i = 0; i < tabcontent.length; i++) {
                 tabcontent[i].classList.remove("active");
             }
-            
+
             // Remove active class from all buttons
             const tablinks = document.getElementsByClassName("tab-button");
             for (let i = 0; i < tablinks.length; i++) {
                 tablinks[i].classList.remove("active");
             }
-            
+
             // Show the current tab
             document.getElementById(tabName).classList.add("active");
             evt.currentTarget.classList.add("active");
@@ -343,13 +600,13 @@
             setTimeout(() => {
                 // 1. Trigger general window resize
                 window.dispatchEvent(new Event('resize'));
-                
+
                 // 2. Explicitly force Plotly to recalculate the bounding boxes for Pie labels
                 const plotlyDivs = document.querySelectorAll('.js-plotly-plot');
                 plotlyDivs.forEach(div => {
                     if (typeof Plotly !== 'undefined') {
                         // This forces a hard redraw of the labels and lines
-                        Plotly.Plots.resize(div); 
+                        Plotly.Plots.resize(div);
                     }
                 });
 
@@ -361,4 +618,5 @@
         }
     </script>
 </body>
+
 </html>
