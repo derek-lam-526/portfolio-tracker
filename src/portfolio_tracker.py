@@ -8,6 +8,8 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import concurrent.futures
 import pickle
+import time
+from utils import TimingCollector
 
 class PortfolioTracker:
     def __init__(self, trades_df):
@@ -21,8 +23,9 @@ class PortfolioTracker:
         self.end_date = datetime.now()
         self.dividend_history = []
         
-    def fetch_market_data(self, update=True):
+    def fetch_market_data(self, update=True, show_timing=False, force_update_minute=False):
         
+        collector = TimingCollector(enabled=show_timing)
         metadata_path = os.path.join(config.DATA_DIR, "portfolio_metadata.pkl")
         
         if not update:
@@ -56,7 +59,7 @@ class PortfolioTracker:
                 ticker = yf.Ticker(symbol)
                 start_str = (self.start_date - timedelta(days=5)).strftime('%Y-%m-%d')
                 
-                # --- DAILY DATA ---
+                # --- DAILY DATA DOWNLOAD ---
                 file_name = f'{symbol}.csv'
                 daily_path = os.path.join(config.DAILY_DATA_DIR, file_name)
                 existing_data = pd.DataFrame()
@@ -66,8 +69,12 @@ class PortfolioTracker:
                         existing_data = pd.read_csv(daily_path, index_col=0, parse_dates=True)
                     except Exception: pass
                 
+                t_start_hist = time.perf_counter()
                 new_hist = ticker.history(start=start_str, auto_adjust=False)
+                collector.record("Daily Data Download", time.perf_counter() - t_start_hist)
                 
+                # --- DAILY DATA PROCESSING/APPEND ---
+                t_start_proc = time.perf_counter()
                 if not new_hist.empty:
                     new_hist.index = new_hist.index.tz_localize(None)
                     if not existing_data.empty:
@@ -83,37 +90,51 @@ class PortfolioTracker:
                     self.market_data[symbol] = existing_data
                 else:
                     self.market_data[symbol] = pd.DataFrame()
+                collector.record("Daily Data Processing & Save", time.perf_counter() - t_start_proc)
 
-                # --- DIVIDENDS & SPLITS ---
+                # --- METADATA RETRIEVAL (DIVIDENDS, SPLITS, INFO) ---
+                t_start_meta = time.perf_counter()
                 divs = ticker.dividends
                 splits = ticker.splits
                 self.dividends[symbol] = divs.tz_localize(None) if divs.index.tz is not None else divs
                 self.splits[symbol] = splits.tz_localize(None) if splits.index.tz is not None else splits
                 
-                # --- ASSET INFO ---
                 try:
                     self.asset_info[symbol] = ticker.info
                 except Exception:
                     self.asset_info[symbol] = {}
+                collector.record("Metadata Retrieval (Divs/Splits/Info)", time.perf_counter() - t_start_meta)
 
                 # --- MINUTE DATA ---
+                t_start_min = time.perf_counter()
                 minute_path = os.path.join(config.MINUTE_DATA_DIR, file_name)
-                existing_min = pd.DataFrame()
-                if os.path.exists(minute_path):
-                    try:
-                        existing_min = pd.read_csv(minute_path, index_col=0, parse_dates=True)
-                    except: pass
                 
-                new_min = ticker.history(period='7d', interval='1m', auto_adjust=False)
-                if not new_min.empty:
-                    new_min.index = new_min.index.tz_localize(None)
-                    if not existing_min.empty:
-                        combined_min = pd.concat([existing_min, new_min])
-                        combined_min = combined_min[~combined_min.index.duplicated(keep='last')]
-                        combined_min.sort_index(inplace=True)
-                        combined_min.to_csv(minute_path)
-                    else:
-                        new_min.to_csv(minute_path)
+                should_update_minute = True
+                if os.path.exists(minute_path) and not force_update_minute:
+                    mtime = datetime.fromtimestamp(os.path.getmtime(minute_path))
+                    if mtime.date() == datetime.now().date():
+                        should_update_minute = False
+
+                if should_update_minute:
+                    existing_min = pd.DataFrame()
+                    if os.path.exists(minute_path):
+                        try:
+                            existing_min = pd.read_csv(minute_path, index_col=0, parse_dates=True)
+                        except: pass
+                    
+                    new_min = ticker.history(period='7d', interval='1m', auto_adjust=False)
+                    if not new_min.empty:
+                        new_min.index = new_min.index.tz_localize(None)
+                        if not existing_min.empty:
+                            combined_min = pd.concat([existing_min, new_min])
+                            combined_min = combined_min[~combined_min.index.duplicated(keep='last')]
+                            combined_min.sort_index(inplace=True)
+                            combined_min.to_csv(minute_path)
+                        else:
+                            new_min.to_csv(minute_path)
+                
+                collector.record("Minute Data Download & Save", time.perf_counter() - t_start_min)
+
             except Exception as e:
                 print(f"Error processing {symbol}: {e}")
 
@@ -129,6 +150,7 @@ class PortfolioTracker:
                     "asset_info": self.asset_info
                 }, f)
             print("✅ Market data and metadata updated successfully.")
+            collector.print_summary()
         except Exception as e:
             print(f"Error saving metadata: {e}")
             
