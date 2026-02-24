@@ -1,4 +1,5 @@
 import config
+import mappings
 
 import pandas as pd 
 import numpy as np 
@@ -568,52 +569,53 @@ def get_allocation(history_df, trades_df, portfolio_tracker, show=False):
     asset_categories = {}
     asset_sectors = {}
 
-    # Split Broad Market into US and International
-    US_BROAD_MARKET = ['VOO', 'VTI', 'SPY', 'IVV', 'QQQ', 'IWM', 'QQQM', 'SPYM']
-    INTL_EQUITY = ['VEU', 'VXUS', 'EFA']
-
     for sym in current_values.keys():
         if sym == 'CASH':
             asset_categories[sym] = 'Cash & Equivalents'
             asset_sectors[sym] = 'Cash'
             continue
 
-        # Manual fix wrong category and sector
-        if sym == 'SPYM':
-            asset_categories[sym] = 'US Broad Market'
-            asset_sectors[sym] = 'US Broad Market'
+        # 1. Ticker-specific overrides (highest priority)
+        if sym in mappings.TICKER_OVERRIDES:
+            cat = mappings.TICKER_OVERRIDES[sym]
+            asset_categories[sym] = cat
+            asset_sectors[sym] = cat
             continue
 
         info = portfolio_tracker.asset_info.get(sym, {})
         quote_type = info.get('quoteType', 'UNKNOWN')
         sector = info.get('sector', 'Unknown')
+        category_yf = info.get('category')  # yfinance ETF category
         long_name = info.get('longName', '').lower()
         
         if quote_type == 'ETF':
-            if sym in US_BROAD_MARKET:
-                category = 'US Broad Market'
-            elif sym in INTL_EQUITY:
-                category = 'International Equity'
-            elif any(x in long_name for x in ['treasury', 'gov', 'bills', 'sovereign']):
-                category = 'Treasury Bonds'
-            elif any(x in long_name for x in ['corporate', 'credit', 'high yield']):
-                category = 'Corporate Bonds'
-            elif any(x in long_name for x in ['bond', 'fixed income']):
-                category = 'Other Fixed Income'
-            elif any(x in long_name for x in ['gold', 'silver', 'commodity', 'metal']):
-                category = 'Commodities'
-            else:
-                category = 'Equity ETF (Other)'
-        elif quote_type == 'EQUITY':
-            if sector != 'Unknown':
-                category = f"{sector} Stocks"
-            else:
-                category = 'Individual Stocks'
-        else:
-            category = 'Other'
+            # Check ETF category mapping
+            cat = mappings.ETF_CATEGORY_MAP.get(category_yf)
             
-        asset_categories[sym] = category
-        asset_sectors[sym] = sector if sector != 'Unknown' else category
+            # If no category mapping, fallback to keyword matching
+            if not cat:
+                if any(x in long_name for x in ['treasury', 'gov', 'bills', 'sovereign']):
+                    cat = 'Treasury Bonds'
+                elif any(x in long_name for x in ['corporate', 'credit', 'high yield']):
+                    cat = 'Corporate Bonds'
+                elif any(x in long_name for x in ['bond', 'fixed income']):
+                    cat = 'Other Fixed Income'
+                elif any(x in long_name for x in ['gold', 'silver', 'commodity', 'metal', 'uranium', 'copper']):
+                    cat = 'Commodities'
+                else:
+                    cat = 'Equity ETF (Other)'
+            
+            asset_categories[sym] = cat
+            asset_sectors[sym] = sector if sector != 'Unknown' else cat
+            
+        elif quote_type == 'EQUITY':
+            # Map stock sector using our standardized labels
+            cat = mappings.STOCK_SECTOR_MAP.get(sector, f"{sector} Stocks" if sector != 'Unknown' else 'Individual Stocks')
+            asset_categories[sym] = cat
+            asset_sectors[sym] = sector if sector != 'Unknown' else cat
+        else:
+            asset_categories[sym] = 'Other'
+            asset_sectors[sym] = sector if sector != 'Unknown' else 'Other'
 
     # Group by Category
     category_values = {}
