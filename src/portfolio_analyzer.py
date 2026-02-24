@@ -946,7 +946,7 @@ def get_beta_exposure_plot(portfolio_tracker, current_holdings, current_values, 
                            xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False,
                            font=dict(size=16, color="#6b7280"))
         fig.update_layout(template='plotly_white', height=400)
-        return fig
+        return fig, pd.DataFrame()
 
     # Get benchmark returns
     try:
@@ -963,31 +963,45 @@ def get_beta_exposure_plot(portfolio_tracker, current_holdings, current_values, 
                            xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False,
                            font=dict(size=16, color="#6b7280"))
         fig.update_layout(template='plotly_white', height=400)
-        return fig
+        return fig, pd.DataFrame()
+
+    # --- VECTORIZED BETA CALCULATION ---
+    # Collect all asset returns into one DataFrame
+    returns_list = []
+    valid_symbols = []
+    
+    for sym in symbols:
+        if sym in portfolio_tracker.market_data and not portfolio_tracker.market_data[sym].empty:
+            asset_close = portfolio_tracker.market_data[sym]['Close']
+            asset_ret = asset_close.pct_change().dropna()
+            if asset_ret.index.tz is not None:
+                asset_ret.index = asset_ret.index.tz_localize(None)
+            returns_list.append(asset_ret)
+            valid_symbols.append(sym)
+    
+    if not returns_list:
+        return go.Figure(), pd.DataFrame()
+
+    # Align all returns with benchmark
+    all_returns = pd.concat(returns_list, axis=1, keys=valid_symbols)
+    # Add benchmark to alignment
+    all_returns['BENCHMARK'] = bench_returns
+    all_returns = all_returns.dropna()
+
+    if len(all_returns) < 20:
+        # Fallback to 1.0 if not enough data
+        betas = {sym: 1.0 for sym in valid_symbols}
+    else:
+        # Matrix-based beta calculation: cov(X, Y) / var(Y)
+        matrix = all_returns.cov()
+        bench_var = matrix.loc['BENCHMARK', 'BENCHMARK']
+        betas = (matrix.loc[valid_symbols, 'BENCHMARK'] / bench_var).to_dict()
 
     rows = []
     total_portfolio_value = sum(current_values.values())
 
-    for sym in symbols:
-        if sym not in portfolio_tracker.market_data or portfolio_tracker.market_data[sym].empty:
-            continue
-
-        asset_returns = portfolio_tracker.market_data[sym]['Close'].pct_change().dropna()
-        if asset_returns.index.tz is not None:
-            asset_returns.index = asset_returns.index.tz_localize(None)
-
-        # Align dates
-        aligned = pd.DataFrame({
-            'asset': asset_returns,
-            'bench': bench_returns
-        }).dropna()
-
-        if len(aligned) < 20:
-            beta = 1.0  # Default to market beta if insufficient data
-        else:
-            beta_val, _, _, _, _ = stats.linregress(aligned['bench'], aligned['asset'])
-            beta = beta_val
-
+    for sym in valid_symbols:
+        beta = betas.get(sym, 1.0)
         nominal_val = current_values.get(sym, 0)
         beta_adj_val = nominal_val * beta
         nominal_pct = (nominal_val / total_portfolio_value) * 100
@@ -1001,11 +1015,6 @@ def get_beta_exposure_plot(portfolio_tracker, current_holdings, current_values, 
             'Beta-Adj ($)': beta_adj_val,
             'Beta-Adj (%)': round(beta_adj_pct, 1),
         })
-
-    if not rows:
-        fig = go.Figure()
-        fig.update_layout(template='plotly_white', height=400)
-        return fig
 
     df_beta = pd.DataFrame(rows).sort_values('Nominal ($)', ascending=True)
 
@@ -1052,63 +1061,65 @@ def get_beta_exposure_plot(portfolio_tracker, current_holdings, current_values, 
     return fig, df_beta
 
 def fetch_fama_french_factors(start_date, end_date):
-    """Fetches Fama-French 3-Factor daily data directly from Kenneth French's Data Library."""
+    """Fetches Fama-French 3-Factor daily data with local caching."""
     import urllib.request
     import zipfile
     import io
+    import os
+    import pickle
+    from datetime import datetime, timedelta
 
-    # URL to the daily 3-factor dataset
-    url = "https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/ftp/F-F_Research_Data_Factors_daily_CSV.zip"
+    cache_path = os.path.join(config.DATA_DIR, "fama_french_factors.pkl")
     
+    # --- CHECK CACHE ---
+    if os.path.exists(cache_path):
+        try:
+            mtime = datetime.fromtimestamp(os.path.getmtime(cache_path))
+            # Refresh cache if older than 30 days
+            if datetime.now() - mtime < timedelta(days=30):
+                with open(cache_path, 'rb') as f:
+                    ff_df = pickle.load(f)
+                
+                # Filter and return
+                start = pd.to_datetime(start_date)
+                end = pd.to_datetime(end_date)
+                return ff_df[(ff_df.index >= start) & (ff_df.index <= end)]
+        except Exception as e:
+            print(f"⚠️  Cache load failed: {e}")
+
+    # --- DOWNLOAD IF NO CACHE ---
+    url = "https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/ftp/F-F_Research_Data_Factors_daily_CSV.zip"
     try:
-        # Download and read zip file in memory
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
         with urllib.request.urlopen(req) as response:
             with zipfile.ZipFile(io.BytesIO(response.read())) as z:
-                # Get the first (and usually only) CSV file
                 filename = z.namelist()[0]
                 with z.open(filename) as f:
                     content = f.read().decode('utf-8')
         
-        # Parse the CSV text
         lines = content.split('\n')
-        
-        # Find start of data (skip header info)
-        start_idx = 0
-        for i, line in enumerate(lines):
-            if line.startswith(',Mkt-RF'):
-                start_idx = i
-                break
-                
-        # Find end of data (stop before annual data or empty lines)
+        start_idx = next(i for i, line in enumerate(lines) if line.startswith(',Mkt-RF'))
         end_idx = start_idx + 1
         for i, line in enumerate(lines[start_idx+1:]):
-            if not line.strip() or len(line.split(',')[0]) != 8:  # 8 digits for YYYYMMDD
+            if not line.strip() or len(line.split(',')[0]) != 8:
                 end_idx = start_idx + 1 + i
                 break
                 
-        # Reconstruct valid CSV data
         csv_data = "\n".join(lines[start_idx:end_idx])
-        
-        # Load into DataFrame
         ff_df = pd.read_csv(io.StringIO(csv_data), index_col=0)
-        
-        # Clean index (YYYYMMDD string -> Datetime)
         ff_df.index = pd.to_datetime(ff_df.index.astype(str), format='%Y%m%d')
-        
-        # Clean column names (strip whitespace)
         ff_df.columns = ff_df.columns.str.strip()
         
-        # Convert values to float and from percentage to decimal
         for col in ff_df.columns:
             ff_df[col] = pd.to_numeric(ff_df[col], errors='coerce') / 100.0
             
-        # Filter to requested date range
+        # Save to cache
+        with open(cache_path, 'wb') as f:
+            pickle.dump(ff_df, f)
+            
         start = pd.to_datetime(start_date)
         end = pd.to_datetime(end_date)
-        ff_df = ff_df[(ff_df.index >= start) & (ff_df.index <= end)]
-        
-        return ff_df
+        return ff_df[(ff_df.index >= start) & (ff_df.index <= end)]
     except Exception as e:
         print(f"⚠️  Error fetching Fama-French factors: {e}")
         return None

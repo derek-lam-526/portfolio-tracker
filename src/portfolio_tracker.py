@@ -155,125 +155,135 @@ class PortfolioTracker:
             print(f"Error saving metadata: {e}")
             
     def process_portfolio(self):
+        # 1. Setup Time Index
         date_range = pd.date_range(start=self.start_date, end=self.end_date, freq='D')
-        
-        # Initialize tracking variables
-        portfolio_history = []
-        holdings = {sym: 0 for sym in self.symbols}
-        cash = 0.0
-        invested_capital = 0.0
+        full_idx = date_range
 
-        weight_history = []
+        # 2. Pre-process Trades
+        trades = self.trades.copy()
+        trades['DATE'] = pd.to_datetime(trades['DATE'])
         
-        # Iterate through each day
-        for current_date in date_range:
-            daily_net_flow = 0.0 
-            
-            # Process trades for this day
-            day_trades = self.trades[self.trades['DATE'] == current_date]
-            for _, trade in day_trades.iterrows():
-                symbol = trade['SYMBOL']
-                qty = trade['QTY']
-                price = trade['PRICE']
-                amt = trade['AMT']
-                type_ = trade['BUY/SELL']
-                fee = trade['FEE']
-                
-                if symbol == 'CASH':
-                    if type_ == 'DEPOSIT':
-                        net_deposit = amt - fee
-                        cash += net_deposit
-                        invested_capital += amt
-                        daily_net_flow += amt
-                    elif type_ == 'WITHDRAW':
-                        net_withdrawal = amt + fee
-                        cash -= net_withdrawal
-                        invested_capital -= amt
-                        daily_net_flow -= amt
-                else:
-                    if type_ == 'BUY':
-                        holdings[symbol] += qty
-                        total_cost = amt + fee
-                        cash -= total_cost
-                    elif type_ == 'SELL':
-                        holdings[symbol] -= qty
-                        net_proceeds = amt - fee
-                        cash += net_proceeds
-            
-            # Process Dividends & Splits
-            daily_value = 0.0
-            current_asset_values = {} # Store value per asset for weight calc
-            
-            for symbol in self.symbols:
-                if symbol not in self.market_data or self.market_data[symbol].empty:
-                    current_asset_values[symbol] = 0.0
-                    continue
-                    
-                df = self.market_data[symbol]
-                
-                # Get price
-                try:
-                    idx = df.index.get_indexer([current_date], method='pad')[0]
-                    if idx == -1:
-                        price = 0 # Before data start
-                    else:
-                        price = df.iloc[idx]['Close']
-                        
-                    # Check for Split
-                    if current_date in self.splits[symbol].index:
-                        split_ratio = self.splits[symbol].loc[current_date]
-                        holdings[symbol] *= split_ratio
-                        
-                    # Check for Dividend
-                    if current_date in self.dividends[symbol].index:
-                        div_amt = self.dividends[symbol].loc[current_date]
-                        # Check if treasury (simple check for now, can be expanded)
-                        is_treasury = symbol in config.NO_DIVIDEND_TAX 
-                        tax_rate = 0.0 if is_treasury else 0.30
-                        net_div = div_amt * (1 - tax_rate)
-                        total_div = holdings[symbol] * net_div
-                        
-                        if total_div > 0:
-                            cash += total_div
-                            self.dividend_history.append({
-                                'Date': current_date,
-                                'Symbol': symbol,
-                                'Amount': total_div
-                            })
-                    
-                    val = holdings[symbol] * price
-                    daily_value += val
-                    current_asset_values[symbol] = val
-                        
-                except Exception as e:
-                    price = 0
-                
-            total_equity = daily_value + cash
+        # Sign QTY and Cash Flows based on BUY/SELL
+        # In iterative logic:
+        # BUY:  holdings[symbol] += qty, cash -= (amt + fee)
+        # SELL: holdings[symbol] -= qty, cash += (amt - fee)
+        trades['SIGNED_QTY'] = 0.0
+        trades['NET_ASSET_CASH'] = 0.0
+        
+        buy_mask = trades['BUY/SELL'] == 'BUY'
+        sell_mask = trades['BUY/SELL'] == 'SELL'
+        
+        trades.loc[buy_mask, 'SIGNED_QTY'] = trades['QTY']
+        trades.loc[buy_mask, 'NET_ASSET_CASH'] = -(trades['AMT'] + trades['FEE'])
+        
+        trades.loc[sell_mask, 'SIGNED_QTY'] = -trades['QTY']
+        trades.loc[sell_mask, 'NET_ASSET_CASH'] = +(trades['AMT'] - trades['FEE'])
 
-            # --- Record Weights ---
-            if total_equity > 0:
-                daily_weights = {k: v / total_equity for k, v in current_asset_values.items()}
+        # 3. Align Market Data, Splits, and Dividends
+        price_df = pd.DataFrame(1.0, index=full_idx, columns=self.symbols)
+        split_df = pd.DataFrame(1.0, index=full_idx, columns=self.symbols)
+        div_df = pd.DataFrame(0.0, index=full_idx, columns=self.symbols)
+
+        for sym in self.symbols:
+            # Prices
+            if sym in self.market_data and not self.market_data[sym].empty:
+                df = self.market_data[sym]
+                # Pad to fill non-trading days
+                price_df[sym] = df['Close'].reindex(full_idx, method='pad').fillna(0)
             else:
-                daily_weights = {k: 0 for k in current_asset_values}
-            
-            daily_weights['Date'] = current_date
-            weight_history.append(daily_weights)
-            
-            portfolio_history.append({
-                'Date': current_date,
-                'Cash': cash,
-                'Market_Value': daily_value,
-                'Total_Equity': total_equity,
-                'Invested_Capital': invested_capital,
-                'Net_Flow': daily_net_flow
-            })
+                price_df[sym] = 0.0
 
-        # Convert to DataFrame
-        self.df_portfolio = pd.DataFrame(portfolio_history).set_index('Date')
+            # Splits
+            # In iterative: holdings[symbol] *= split_ratio on the day of the split
+            if sym in self.splits and not self.splits[sym].empty:
+                split_df[sym] = self.splits[sym].reindex(full_idx, fill_value=1.0)
+
+            # Dividends (Net of Tax)
+            if sym in self.dividends and not self.dividends[sym].empty:
+                is_treasury = sym in config.NO_DIVIDEND_TAX
+                tax_rate = 0.0 if is_treasury else 0.30
+                net_div = self.dividends[sym] * (1 - tax_rate)
+                div_df[sym] = net_div.reindex(full_idx, fill_value=0.0)
+
+        # 4. Vectorized Holdings Calculation (Split-Adjusted)
+        # Logic Parity: H_t = (H_{t-1} + Q_t) * S_t
+        # Expanded: H_t = [Q_1*S_1*S_2...*S_t] + [Q_2*S_2*...*S_t] + ... + [Q_t*S_t]
+        # H_t = sum_{i=1 to t} (Q_i * product_{j=i to t} S_j)
+        # H_t = sum_{i=1 to t} (Q_i / (cumulative_product_{j=1 to i-1} S_j)) * (cumulative_product_{j=1 to t} S_j)
+        
+        cum_split = split_df.cumprod()
+        # For the formula we need the product up to i-1. 
+        # shift(1) gives the product up to i-1, fill first value with 1.0.
+        prev_cum_split = cum_split.shift(1, fill_value=1.0)
+        
+        trade_qties = trades[trades['SYMBOL'] != 'CASH'].groupby(['DATE', 'SYMBOL'])['SIGNED_QTY'].sum().unstack().reindex(full_idx).fillna(0)
+        for sym in self.symbols:
+            if sym not in trade_qties.columns:
+                trade_qties[sym] = 0.0
+        trade_qties = trade_qties[self.symbols]
+
+        adj_qty = trade_qties / prev_cum_split
+        holdings_df = adj_qty.cumsum() * cum_split
+        
+        # 5. Market Value
+        market_value_df = holdings_df * price_df
+        daily_market_value = market_value_df.sum(axis=1)
+
+        # 6. Cash Flow and Dividend History
+        # Iterative logic: dividends are calculated on holding AFTER trades and AFTER splits of the day
+        daily_div_income = (holdings_df * div_df).sum(axis=1)
+        
+        # Record Dividend History
+        div_hits = (holdings_df * div_df)
+        div_mask = div_hits > 1e-6 # Avoid precision noise
+        for date in div_mask.index[div_mask.any(axis=1)]:
+            for sym in div_mask.columns[div_mask.loc[date]]:
+                self.dividend_history.append({
+                    'Date': date, 'Symbol': sym, 'Amount': div_hits.loc[date, sym]
+                })
+
+        # Asset Trade Cash Flows
+        daily_asset_cash_flow = trades[trades['SYMBOL'] != 'CASH'].groupby('DATE')['NET_ASSET_CASH'].sum().reindex(full_idx).fillna(0)
+        
+        # Cash Trades (Deposits/Withdrawals)
+        cash_trades = trades[trades['SYMBOL'] == 'CASH'].copy()
+        cash_trades['FLOW'] = 0.0
+        cash_trades['CAPITAL_CHANGE'] = 0.0
+        
+        dep_mask = cash_trades['BUY/SELL'] == 'DEPOSIT'
+        wit_mask = cash_trades['BUY/SELL'] == 'WITHDRAW'
+        
+        cash_trades.loc[dep_mask, 'FLOW'] = cash_trades['AMT'] - cash_trades['FEE']
+        cash_trades.loc[dep_mask, 'CAPITAL_CHANGE'] = cash_trades['AMT']
+        
+        # Withdraw iterative: cash -= (amt + fee), invested -= amt
+        cash_trades.loc[wit_mask, 'FLOW'] = -(cash_trades['AMT'] + cash_trades['FEE'])
+        cash_trades.loc[wit_mask, 'CAPITAL_CHANGE'] = -cash_trades['AMT']
+        
+        daily_cash_trades_flow = cash_trades.groupby('DATE')['FLOW'].sum().reindex(full_idx).fillna(0)
+        daily_capital_change = cash_trades.groupby('DATE')['CAPITAL_CHANGE'].sum().reindex(full_idx).fillna(0)
+        
+        total_cash_change = daily_asset_cash_flow + daily_cash_trades_flow + daily_div_income
+        cash_series = total_cash_change.cumsum()
+        invested_capital_series = daily_capital_change.cumsum()
+        
+        # 7. Final Assembly
+        total_equity = daily_market_value + cash_series
+        
+        self.df_portfolio = pd.DataFrame({
+            'Cash': cash_series,
+            'Market_Value': daily_market_value,
+            'Total_Equity': total_equity,
+            'Invested_Capital': invested_capital_series,
+            'Net_Flow': daily_capital_change
+        }, index=full_idx)
+        
+        # Business days filter
         self.df_portfolio = self.df_portfolio[self.df_portfolio.index.dayofweek < 5]
-
-        self.historical_weights = pd.DataFrame(weight_history).set_index('Date')
-        self.historical_weights = self.historical_weights[self.historical_weights.index.dayofweek < 5]
+        
+        # Weights
+        weight_df = market_value_df.divide(total_equity, axis=0).fillna(0)
+        self.historical_weights = weight_df[weight_df.index.dayofweek < 5]
         
         return self.df_portfolio
 

@@ -34,8 +34,12 @@ def get_trade_history() -> pd.DataFrame:
     return trades_df
 
 def get_portfolio_history(portfolio_tracker, update=True, show_timing=False, force_update_minute=False) -> pd.DataFrame:
-    portfolio_tracker.fetch_market_data(update=update, show_timing=show_timing, force_update_minute=force_update_minute)
-    history_df = portfolio_tracker.process_portfolio()
+    with Timer(f"Fetching market data{' (no update)' if not update else ''}", enabled=show_timing):
+        portfolio_tracker.fetch_market_data(update=update, show_timing=show_timing, force_update_minute=force_update_minute)
+    
+    with Timer("Processing portfolio history", enabled=show_timing):
+        history_df = portfolio_tracker.process_portfolio()
+    
     return history_df
 
 def create_report(figs, df_alloc, df_trades, open_report = False):
@@ -93,8 +97,8 @@ def run_portfolio_update(update_market_data=True, upload_results=True, show_timi
     # Initialise tracker
     portfolio_tracker = tracker.PortfolioTracker(df_trades)
     
-    with Timer(f"Fetching portfolio history{' (no update)' if not update_market_data else ''}", enabled=show_timing):
-        df_history = get_portfolio_history(portfolio_tracker, update=update_market_data, show_timing=show_timing, force_update_minute=force_update_minute) 
+    # Fetch and process history
+    df_history = get_portfolio_history(portfolio_tracker, update=update_market_data, show_timing=show_timing, force_update_minute=force_update_minute) 
 
     # Analysis and plots
     with Timer("Calculating performance metrics", enabled=show_timing):
