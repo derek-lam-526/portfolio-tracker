@@ -6,28 +6,38 @@ Built with **Pandas**, **yfinance**, and **Plotly**, this tool reconstructs your
 
 ## 🚀 Key Features
 
+* **Vectorized Performance Engine**: Optimized with NumPy and Pandas vectorization to calculate 1500+ days of portfolio history and complex risk metrics in milliseconds.
 * **Automated Data Engine**: Fetches historical price data (Daily & Minute resolution) using `yfinance`.
-* **Smart Caching**: Caches market data and metadata locally (`data/portfolio_metadata.pkl`) to significantly speed up subsequent runs and minimize API rate limits.
+* **Smart Caching & Optimization**:
+    * Caches market data and metadata locally (`data/portfolio_metadata.pkl`) to minimize API requests.
+    * **Fama-French Factor Caching**: Local storage of risk factors to speed up quantitative analysis.
+    * **Minute Data Throttling**: Automatically limits minute-data updates to once per day to ensure stability.
+* **Scalable Asset Categorization**: Uses a dynamic mapping system (`mappings.py`) to classify holdings into groups like **Technology**, **Consumer Staples**, and **International Broad Market** based on asset metadata.
 * **Advanced Risk Analysis**:
     * **Performance**: Cumulative Returns, Daily PnL, Drawdowns.
-    * **Metrics**: Sharpe Ratio, Sortino Ratio, Alpha, Beta (vs SPY), Value at Risk (VaR 95%), and Tracking Error.
-    * **Concentration**: Analyzes top holdings and sector allocation.
+    * **Metrics**: Sharpe Ratio, Sortino Ratio, Alpha, Beta (vs Benchmark), Value at Risk (VaR 95%).
+    * **Exposure**: Side-by-side comparison of nominal allocation vs. beta-adjusted exposure.
 * **Interactive Dashboard**: 
     * Generates a standalone HTML file with zoomable Plotly charts.
     * Includes a **searchable, sortable Holdings Table** using DataTables.
     * Visualizes Monthly Returns with a heatmap.
-* **Cash Flow Management**: accurately handles Deposits and Withdrawals to track Invested Capital vs. Market Value.
+* **Cash Flow Management**: Accurately handles Deposits and Withdrawals to track Invested Capital vs. Market Value.
 
 ---
 
 ## 📂 Project Structure
 
-* `main.py`: The entry point. Orchestrates the workflow from data loading to report generation.
-* `config.py`: Central configuration. Manages file paths, constants (like Benchmarks), and environment variables.
-* `portfolio_tracker.py`: Core engine. Reconstructs portfolio state day-by-day, handles dividends/splits, and manages the data cache.
-* `portfolio_analyzer.py`: Statistical engine. Calculates all financial metrics (Alpha, Beta, etc.) and prepares plot data.
-* `report_manager.py`: Renders the final HTML report, embedding plots and JavaScript for interactivity.
-* `data_manager.py`: Utilities for reading your Excel trade log and converting it to a standardized CSV.
+* `main.py`: Entry point. Orchestrates the workflow and handles CLI arguments.
+* `portfolio_tracker.py`: Core engine. Vectorized reconstruction of portfolio state, handles dividends/splits, and data caching.
+* `portfolio_analyzer.py`: Statistical engine. Calculates core financial metrics (Alpha, Beta, etc.) and prepares plot data.
+* `portfolio_stats.py`: Statistics and simulation engine. Runs Monte Carlo bootstrap simulations and permutation tests for Sharpe ratio significance.
+* `trade_analyzer.py`: Trade matching and analysis. Implements FIFO logic to calculate realized PnL and trade-level performance metrics.
+* `report_manager.py`: Report generator. Renders the interactive HTML dashboard using Jinja2 templates.
+* `templates/`: Contains HTML/CSS templates used by `report_manager.py` for report generation.
+* `data_manager.py`: Data I/O utilities. Handles Excel-to-CSV conversion and loading of trade history.
+* `mappings.py`: Centralized home for asset classification rules and ticker overrides.
+* `utils.py`: Shared utilities including performance timing and thread-safe collectors.
+* `config.py`: Central configuration. Manages file paths, benchmarks, and tax settings.
 
 ---
 
@@ -36,22 +46,21 @@ Built with **Pandas**, **yfinance**, and **Plotly**, this tool reconstructs your
 This project uses `python-dotenv` to manage sensitive paths and configuration separate from the code.
 
 ### 1. Environment Variables (`.env`)
-Create a file named `.env` in the root directory of the project. Add the absolute path to your trade Excel file:
-
+Create a file named `.env` in the root directory:
 ```ini
-# .env file content
 TRADE_EXCEL_FILE="C:/Users/YourName/Documents/Finance/MyTrades.xlsx"
 TRADE_EXCEL_SHEET="Sheet1"
 
+# (Optional) Remote Upload Settings
+HOST="your.host.server"
+HOST_USER="your_username"
+SUBPAGE="sub-directory"
 ```
 
 ### 2. General Settings (`config.py`)
-
-You can modify `config.py` to customize analysis parameters:
-
-* `METRICS_BENCHMARK`: Ticker used for Alpha/Beta calculations (Default: `"SPY"`).
-* `PLOT_BENCHMARK`: List of tickers to plot for comparison (Default: `["SPY", "QQQ", "VEU"]`).
-* `NO_DIVIDEND_TAX`: List of tickers exempt from dividend tax adjustments (e.g., `['SHV', 'SGOV']`).
+* `METRICS_BENCHMARK`: Ticker for Alpha/Beta calculations (Default: `"SPY"`).
+* `PLOT_BENCHMARK`: Benchmarks to plot for comparison (Default: `["SPY", "QQQ", "VEU"]`).
+* `NO_DIVIDEND_TAX`: Tickers exempt from dividend tax adjustments.
 
 ---
 
@@ -74,19 +83,13 @@ Your Excel file acts as the source of truth. It **must** contain the following c
 
 | Column | Description |
 | --- | --- |
-| **DATE** | The transaction date (format: `DD/MM/YYYY` or Excel Date format). |
-| **MARKET** | The specific market code for the asset (e.g., US).
-| **SYMBOL** | Ticker symbol (e.g., `AAPL`, `TSLA`). **Use `CASH` for Deposits/Withdrawals.** |
-| **BUY/SELL** | The action taken. Must be one of: `Buy`, `Sell`, `Deposit`, `Withdraw`. |
-| **QTY** | Number of shares. (Use `1` for Deposits/Withdrawals if putting full amount in Price). |
-| **PRICE** | Price per share. (For Deposits/Withdrawals, this is the total cash amount). |
-| **FEE** | (Optional) Brokerage commission or fees paid. Defaults to 0 if left blank. |
-
-> **Note on Cash Flows:** > * **Deposit**: Increases your "Invested Capital".
-> * **Withdraw**: Decreases your "Invested Capital".
-> * The script calculates the total transaction amount automatically: `(QTY * PRICE)`.
-> 
-> 
+| **DATE** | Transaction date (format: `DD/MM/YYYY` or Excel Date format). |
+| **MARKET** | Specific market code for the asset (e.g., US). |
+| **SYMBOL** | Ticker symbol. Use **CASH** for Deposits/Withdrawals. |
+| **BUY/SELL** | Action taken: `Buy`, `Sell`, `Deposit`, `Withdraw`. |
+| **QTY** | Number of shares. |
+| **PRICE** | Price per share (or total amount for Cash actions). |
+| **FEE** | (Optional) Transaction fees. |
 
 ---
 
@@ -94,32 +97,29 @@ Your Excel file acts as the source of truth. It **must** contain the following c
 
 1. **Install Dependencies:**
 ```bash
-pip install pandas numpy yfinance plotly scipy matplotlib seaborn python-dotenv openpyxl pickle
-
+pip install pandas numpy yfinance plotly scipy matplotlib seaborn python-dotenv openpyxl paramiko
 ```
 
 2. **Run the Tracker:**
 ```bash
-python main.py
+# Standard run (updates data and generates report)
+python src/main.py
 
+# Test mode (local data only, granular timing enabled)
+python src/main.py --test --no-update
 ```
 
-
-3. **View Output:**
-* The script will process your trades, fetch missing market data, and calculate metrics.
-* A new report will be generated in the `output/` folder: `portfolio_report_YYYY-MM-DD.html`.
-* The report automatically opens in your default web browser.
-
+### **Advanced CLI Options**
+* `--test`: Enables granular timing instrumentation and skips remote uploads.
+* `--no-update`: Uses cached local data instead of fetching fresh market prices.
+* `--force-minute`: Overrides the daily limit for minute-data downloads.
 
 ---
 
 ## 📉 Metrics Glossary
 
-The generated report includes the following financial metrics:
-
-* **Sharpe Ratio:** Measure of risk-adjusted return. (Excess return / Volatility).
-* **Sortino Ratio:** Similar to Sharpe, but only penalizes *downside* volatility.
-* **Alpha:** The excess return of the portfolio relative to the benchmark (`SPY`).
-* **Beta:** Volatility relative to the market. (Beta > 1.0 means more volatile than the market).
-* **VaR (95%):** Value at Risk. The maximum expected loss in a single day with 95% confidence.
-* **Tracking Error:** The standard deviation of the difference between your portfolio returns and the benchmark.
+* **Sharpe Ratio:** Risk-adjusted return (Excess return / Volatility).
+* **Sortino Ratio:** Sharp ratio variant that only penalizes *downside* volatility.
+* **Alpha:** Excess return relative to the benchmark.
+* **Beta:** Sensitivity to market movements (Beta 1.0 = same as market).
+* **VaR (95%):** Maximum expected loss in one day with 95% confidence.
