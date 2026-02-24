@@ -517,6 +517,13 @@
                         <h3>Risk & Ratios</h3>
                         <div class="data-grid">
                             <div class="data-item">
+                                <div class="data-label data-label-tooltip">Volatility (Ann.)
+                                    <span class="tooltip-text">Annualized standard deviation of daily returns.
+                                        Measures the total risk (variability) of the portfolio.</span>
+                                </div>
+                                <div class="data-val">{{ summary.volatility }}</div>
+                            </div>
+                            <div class="data-item">
                                 <div class="data-label data-label-tooltip">Sharpe Ratio
                                     <span class="tooltip-text">Risk-adjusted return: (Portfolio Return - Risk Free Rate)
                                         / Volatility. >1 is good, >2 is great.</span>
@@ -533,6 +540,27 @@
                                 <div class="data-val">{{ summary.sortino_ratio }}</div>
                                 <div style="font-size:11px; color:#6b7280;">BM: {{ summary.benchmark_sortino_ratio }}
                                 </div>
+                            </div>
+                            <div class="data-item">
+                                <div class="data-label data-label-tooltip">Treynor Ratio
+                                    <span class="tooltip-text">Reward per unit of systematic risk: (Annualized Return -
+                                        RF) / Beta. Measures efficiency against market exposure.</span>
+                                </div>
+                                <div class="data-val">{{ summary.treynor_ratio }}</div>
+                            </div>
+                            <div class="data-item">
+                                <div class="data-label data-label-tooltip">Calmar Ratio
+                                    <span class="tooltip-text">Risk-adjusted return relative to maximum drawdown:
+                                        Annualized Return / |Max Drawdown|. >1.0 is good, >2.0 is excellent.</span>
+                                </div>
+                                <div class="data-val">{{ summary.calmar_ratio }}</div>
+                            </div>
+                            <div class="data-item">
+                                <div class="data-label data-label-tooltip">Information Ratio
+                                    <span class="tooltip-text">The portfolio's ability to generate excess returns
+                                        relative to the benchmark, per unit of tracking error. >0.5 is good.</span>
+                                </div>
+                                <div class="data-val">{{ summary.information_ratio }}</div>
                             </div>
                             <div class="data-item">
                                 <div class="data-label data-label-tooltip">VaR (95% 1-Day)

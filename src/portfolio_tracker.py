@@ -49,7 +49,9 @@ class PortfolioTracker:
                 file_name = f"{symbol}.csv"
                 daily_path = os.path.join(config.DAILY_DATA_DIR, file_name)
                 if os.path.exists(daily_path):
-                    self.market_data[symbol] = pd.read_csv(daily_path, index_col = 0, parse_dates=True)
+                    df = pd.read_csv(daily_path, index_col=0)
+                    df.index = pd.to_datetime(df.index, errors='coerce')
+                    self.market_data[symbol] = df[df.index.notna()].sort_index()
                 else:
                     print(f"Warning: No local data for {symbol}")
             return 
@@ -68,7 +70,9 @@ class PortfolioTracker:
                 
                 if os.path.exists(daily_path):
                     try:
-                        existing_data = pd.read_csv(daily_path, index_col=0, parse_dates=True)
+                        df = pd.read_csv(daily_path, index_col=0)
+                        df.index = pd.to_datetime(df.index, errors='coerce')
+                        existing_data = df[df.index.notna()].sort_index()
                     except Exception: pass
                 
                 t_start_hist = time.perf_counter()
@@ -121,7 +125,9 @@ class PortfolioTracker:
                     existing_min = pd.DataFrame()
                     if os.path.exists(minute_path):
                         try:
-                            existing_min = pd.read_csv(minute_path, index_col=0, parse_dates=True)
+                            df = pd.read_csv(minute_path, index_col=0)
+                            df.index = pd.to_datetime(df.index, errors='coerce')
+                            existing_min = df[df.index.notna()].sort_index()
                         except: pass
                     
                     new_min = ticker.history(period='7d', interval='1m', auto_adjust=False)

@@ -232,6 +232,20 @@ class PortfolioAnalyzer:
         avg_ttr = np.mean(ttrs) if ttrs else 0
         max_ttr = max(ttrs) if ttrs else 0
 
+        # Calmar & Information Ratios
+        port_ret_ann = (1 + ((1 + df['Daily_Return']).prod() - 1)) ** (252/len(df)) - 1 if len(df) > 0 else 0
+        calmar_ratio = port_ret_ann / abs(max_drawdown) if max_drawdown != 0 else np.nan
+        
+        try:
+            bench_ret_ann = (1 + benchmark_total_return) ** (252/len(df)) - 1 if len(df) > 0 else 0
+            information_ratio = (port_ret_ann - bench_ret_ann) / tracking_error if tracking_error > 0 else np.nan
+        except:
+            information_ratio = np.nan
+
+        # Treynor Ratio
+        rf_ann = (1 + ((1 + df['Risk_Free_Rate_Daily']).prod() - 1)) ** (252/len(df)) - 1 if len(df) > 0 else 0
+        treynor_ratio = (port_ret_ann - rf_ann) / portfolio_beta if not np.isnan(portfolio_beta) and portfolio_beta != 0 else np.nan
+
         self.metrics = {
             'first_date': df.index[0],
             'sharpe_ratio': sharpe_ratio,
@@ -257,6 +271,9 @@ class PortfolioAnalyzer:
             'ulcer_index': ulcer_index,
             'avg_ttr': avg_ttr,
             'max_ttr': max_ttr,
+            'calmar_ratio': calmar_ratio,
+            'information_ratio': information_ratio,
+            'treynor_ratio': treynor_ratio,
         }
         return self.metrics
 
@@ -732,6 +749,9 @@ class PortfolioAnalyzer:
             "benchmark_sharpe_ratio": f"{m['benchmark_sharpe_ratio']:.2f}",
             "sortino_ratio": f"{m['sortino_ratio']:.2f}",
             "benchmark_sortino_ratio": f"{m['benchmark_sortino_ratio']:.2f}",
+            "calmar_ratio": f"{m['calmar_ratio']:.2f}" if not np.isnan(m['calmar_ratio']) else "N/A",
+            "information_ratio": f"{m['information_ratio']:.2f}" if not np.isnan(m['information_ratio']) else "N/A",
+            "treynor_ratio": f"{m['treynor_ratio']:.2f}" if not np.isnan(m['treynor_ratio']) else "N/A",
             "var_95_percent_return": f"{m['var_95_percent_return']:.2%}",
             "max_return_html": fmt_v(m['max_return'], show_hkd=False),
             "benchmark_total_return": f"{m['benchmark_return']:.2%}",
