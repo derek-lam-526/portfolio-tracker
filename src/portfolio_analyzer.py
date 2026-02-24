@@ -21,1047 +21,6 @@ COLOR_ACCENT = '#8b5cf6'     # Violet
 COLOR_TEXT = '#1f2937'       # Slate 800
 COLOR_GRID = '#f1f5f9'       # Slate 100
 
-def calculate_performance_metrics(history_df):
-    history_df['Prev_Equity'] = history_df['Total_Equity'].shift(1)
-    
-    history_df['Daily_Return'] = (
-        (history_df['Total_Equity'] - history_df['Prev_Equity'] - history_df['Net_Flow']) / 
-        (history_df['Prev_Equity'] + 0.5 * history_df['Net_Flow'])
-    )
-    history_df['Daily_Return'] = history_df['Daily_Return'].fillna(0)
-    
-    history_df['Daily_PnL'] = history_df['Total_Equity'] - history_df['Prev_Equity'] - history_df['Net_Flow']
-    
-    # Cumulative Returns
-    history_df['Cumulative_Return'] = (1 + history_df['Daily_Return']).cumprod() - 1
-    history_df['PnL'] = history_df['Total_Equity'] - history_df['Invested_Capital']
-    total_cum_return = history_df['Cumulative_Return'].iloc[-1]
-    max_return = max(history_df['PnL'])
-
-    # Risk-Free Rate
-    try:
-        irx_ticker = yf.Ticker("^IRX")
-        start_date_str = history_df.index.min().strftime('%Y-%m-%d')
-        irx_hist = irx_ticker.history(start=start_date_str)['Close']
-        irx_hist.index = irx_hist.index.tz_localize(None)
-        
-        history_df['Risk_Free_Rate_Annual'] = irx_hist / 100  # Convert percentage to decimal
-        history_df['Risk_Free_Rate_Annual'] = history_df['Risk_Free_Rate_Annual'].ffill().fillna(0.04)
-        
-        history_df['Risk_Free_Rate_Daily'] = (1 + history_df['Risk_Free_Rate_Annual']) ** (1/365) - 1
-        
-    except Exception as e:
-        print(f"Error fetching Risk Free Rate: {e}")
-        history_df['Risk_Free_Rate_Daily'] = (1.04 ** (1/365)) - 1  # 4% annual, daily compounded
-    
-    # Benchmark & Beta
-    try:
-        benchmark_symbol = config.METRICS_BENCHMARK
-        benchmark_ticker = yf.Ticker(benchmark_symbol)
-        start_date_str = history_df.index.min().strftime('%Y-%m-%d')
-        benchmark_hist = benchmark_ticker.history(start=start_date_str)['Close']
-        benchmark_hist.index = benchmark_hist.index.tz_localize(None)
-        benchmark_returns = benchmark_hist.pct_change().fillna(0)
-        
-        aligned_data = pd.DataFrame({
-            'Portfolio': history_df['Daily_Return'],
-            benchmark_symbol: benchmark_returns,
-            'Risk_Free_Rate': history_df['Risk_Free_Rate_Daily']
-        }, index=history_df.index).dropna()
-        
-        if len(aligned_data) > 10:
-            beta, alpha, r_value, p_value, std_err = stats.linregress(
-                aligned_data[benchmark_symbol], aligned_data['Portfolio']
-            )
-            portfolio_beta = beta
-            
-            benchmark_total_return = (1 + aligned_data[benchmark_symbol]).prod() - 1
-            
-            tracking_error = (aligned_data['Portfolio'] - aligned_data[benchmark_symbol]).std() * np.sqrt(252)
-            
-            down_market = aligned_data[aligned_data[benchmark_symbol] < 0]
-            if len(down_market) > 5:  # Need enough down days
-                portfolio_down_return = (1 + down_market['Portfolio']).prod() - 1
-                benchmark_down_return = (1 + down_market[benchmark_symbol]).prod() - 1
-                down_capture = portfolio_down_return / benchmark_down_return if benchmark_down_return != 0 else np.nan
-            else:
-                down_capture = np.nan
-
-            up_market = aligned_data[aligned_data[benchmark_symbol] > 0]
-            if len(up_market) > 5:
-                portfolio_up_return = (1 + up_market['Portfolio']).prod() - 1
-                benchmark_up_return = (1 + up_market[benchmark_symbol]).prod() - 1
-                up_capture = portfolio_up_return / benchmark_up_return if benchmark_up_return != 0 else np.nan
-            else:
-                up_capture = np.nan
-
-            excess_benchmark_returns = aligned_data[benchmark_symbol] - aligned_data['Risk_Free_Rate']
-            if len(history_df) > 1 and aligned_data[benchmark_symbol].std() > 0:
-                benchmark_sharpe_ratio = (excess_benchmark_returns.mean() * 252) / (aligned_data[benchmark_symbol].std() * np.sqrt(252))
-            else:
-                benchmark_sharpe_ratio = np.nan
-
-            downside_benchmark_returns = aligned_data[benchmark_symbol][aligned_data[benchmark_symbol] < aligned_data['Risk_Free_Rate']]
-            if len(downside_benchmark_returns) > 1 and downside_benchmark_returns.std() > 0:
-                benchmark_sortino_ratio = (excess_benchmark_returns.mean() * 252) / (downside_benchmark_returns.std() * np.sqrt(252))
-            else:
-                benchmark_sortino_ratio = np.nan
-                
-        else:
-            portfolio_beta = np.nan
-            benchmark_total_return = np.nan
-            tracking_error = np.nan
-            down_capture = np.nan
-            up_capture = np.nan
-            
-    except Exception as e:
-        print(f"Error calculating Benchmark/Beta: {e}")
-        portfolio_beta = np.nan
-        benchmark_total_return = np.nan
-        tracking_error = np.nan
-        down_capture = np.nan
-        up_capture = np.nan
-    
-    # Sharpe, Sortino, Alpha, Volatility, VaR
-    
-    # Sharpe Ratio
-    excess_returns = history_df['Daily_Return'] - history_df['Risk_Free_Rate_Daily']
-    if len(history_df) > 1 and history_df['Daily_Return'].std() > 0:
-        sharpe_ratio = (excess_returns.mean() * 252) / (history_df['Daily_Return'].std() * np.sqrt(252))
-    else:
-        sharpe_ratio = np.nan
-
-    # Sortino Ratio
-    downside_returns = history_df['Daily_Return'][history_df['Daily_Return'] < history_df["Risk_Free_Rate_Daily"]] # Use risk free rate as minimum acceptable return (MAR)
-    if len(downside_returns) > 1 and downside_returns.std() > 0:
-        sortino_ratio = (excess_returns.mean() * 252) / (downside_returns.std() * np.sqrt(252))
-    else:
-        sortino_ratio = np.nan
-
-    # Alpha
-    if not np.isnan(portfolio_beta) and 'aligned_data' in locals() and len(aligned_data) > 10:
-        # Geometric returns
-        port_total_return = (1 + history_df['Daily_Return']).prod() - 1
-        benchmark_total_return = (1 + aligned_data[benchmark_symbol]).prod() - 1
-        rf_total_return = (1 + history_df['Risk_Free_Rate_Daily']).prod() - 1
-        
-        # Annualize
-        n_days = len(history_df)
-        port_return_annual = (1 + port_total_return) ** (252/n_days) - 1
-        benchmark_return_annual = (1 + benchmark_total_return) ** (252/n_days) - 1
-        rf_annual = (1 + rf_total_return) ** (252/n_days) - 1
-        
-        alpha = port_return_annual - (rf_annual + portfolio_beta * (benchmark_return_annual - rf_annual))
-    else:
-        alpha = np.nan
-    
-    # Volatility 
-    volatility = history_df['Daily_Return'].std() * np.sqrt(252) if len(history_df) > 1 else 0
-    
-    # VaR (95%, 1-day) 
-    if len(history_df) > 10:
-        var_95_percent_return = np.percentile(history_df['Daily_Return'], 5)
-        var_95_dollar = np.percentile(history_df['Daily_PnL'], 5)
-        current_equity = history_df['Total_Equity'].iloc[-1]
-    
-    # Total Return and Max Drawdown
-    if len(history_df) > 0:
-        total_return = (history_df['Total_Equity'].iloc[-1] / history_df['Invested_Capital'].iloc[-1]) - 1
-        rolling_max = history_df['Total_Equity'].cummax()
-        drawdowns = (history_df['Total_Equity'] / rolling_max) - 1
-        max_drawdown = drawdowns.min()
-    else:
-        total_return = 0
-        max_drawdown = 0
-    
-    first_date = history_df.index[0]
-
-    # --- Advanced Risk & Distribution Metrics ---
-    daily_returns = history_df['Daily_Return'].dropna()
-
-    # Skewness & Excess Kurtosis
-    if len(daily_returns) > 3:
-        return_skewness = skew(daily_returns, bias=False)
-        return_kurtosis = sp_kurtosis(daily_returns, bias=False)  # Excess kurtosis (normal = 0)
-    else:
-        return_skewness = np.nan
-        return_kurtosis = np.nan
-
-    # Conditional VaR / Expected Shortfall (95%)
-    if len(daily_returns) > 10:
-        var_threshold = np.percentile(daily_returns, 5)
-        tail_returns = daily_returns[daily_returns <= var_threshold]
-        cvar_95 = tail_returns.mean() if len(tail_returns) > 0 else np.nan
-    else:
-        cvar_95 = np.nan
-    
-    # Ulcer Index
-    if len(history_df) > 1:
-        cum_returns = (1 + daily_returns).cumprod()
-        running_peak = cum_returns.cummax()
-        pct_drawdowns = ((cum_returns - running_peak) / running_peak) * 100  # in percent
-        ulcer_index = np.sqrt((pct_drawdowns ** 2).mean())
-    else:
-        ulcer_index = np.nan
-    
-    # Time to Recovery (TTR)
-    if len(history_df) > 1:
-        equity = history_df['Total_Equity']
-        eq_running_max = equity.cummax()
-        is_in_drawdown = equity < eq_running_max
-        
-        recovery_days = []
-        current_dd_start = None
-        for i in range(len(is_in_drawdown)):
-            if is_in_drawdown.iloc[i]:
-                if current_dd_start is None:
-                    current_dd_start = i
-            else:
-                if current_dd_start is not None:
-                    recovery_days.append(i - current_dd_start)
-                    current_dd_start = None
-        # If still in drawdown at the end, record that too
-        if current_dd_start is not None:
-            recovery_days.append(len(is_in_drawdown) - current_dd_start)
-        
-        avg_ttr = np.mean(recovery_days) if recovery_days else 0
-        max_ttr = max(recovery_days) if recovery_days else 0
-    else:
-        avg_ttr = 0
-        max_ttr = 0
-
-    return {
-        'first_date': first_date,
-        'sharpe_ratio': sharpe_ratio,
-        'benchmark_sharpe_ratio': benchmark_sharpe_ratio,
-        'sortino_ratio': sortino_ratio,
-        'benchmark_sortino_ratio': benchmark_sortino_ratio,
-        'portfolio_beta': portfolio_beta,
-        'alpha': alpha,
-        'volatility': volatility,
-        'var_95_percent_return': var_95_percent_return,
-        'var_95_dollar': var_95_dollar,
-        'total_return': total_return,
-        'max_return': max_return,
-        'total_cum_return': total_cum_return,
-        'max_drawdown': max_drawdown,
-        'benchmark_return': benchmark_total_return if 'benchmark_total_return' in locals() else np.nan,
-        'tracking_error': tracking_error if 'tracking_error' in locals() else np.nan,
-        'down_capture': down_capture if 'down_capture' in locals() else np.nan,
-        'up_capture': up_capture if 'up_capture' in locals() else np.nan,
-        # Advanced Risk Metrics
-        'skewness': return_skewness,
-        'kurtosis': return_kurtosis,
-        'cvar_95': cvar_95,
-        'ulcer_index': ulcer_index,
-        'avg_ttr': avg_ttr,
-        'max_ttr': max_ttr,
-    }
-
-def get_pnl_plot(history_df, show = False):
-    fig_pnl = go.Figure()
-
-    # Add PnL line
-    fig_pnl.add_trace(go.Scatter(
-        x=history_df.index,
-        y=history_df['PnL'],
-        mode='lines',
-        name='Total PnL',
-        line=dict(color='black', width=1)
-    ))
-
-    # Add Green fill for Profit
-    fig_pnl.add_trace(go.Scatter(
-        x=history_df.index,
-        y=history_df['PnL'].where(history_df['PnL'] >= 0, 0),
-        mode='none',
-        fill='tozeroy',
-        fillcolor='rgba(0, 255, 0, 0.3)',
-        name='Profit'
-    ))
-
-    # Add Red fill for Loss
-    fig_pnl.add_trace(go.Scatter(
-        x=history_df.index,
-        y=history_df['PnL'].where(history_df['PnL'] < 0, 0),
-        mode='none',
-        fill='tozeroy',
-        fillcolor='rgba(255, 0, 0, 0.3)',
-        name='Loss'
-    ))
-
-    fig_pnl.update_layout(
-        title='Interactive Total Profit/Loss Over Time',
-        xaxis_title='Date',
-        yaxis_title='PnL (USD)',
-        hovermode='x unified',
-        height=500
-    )
-
-    # Hide weekends on x-axis
-    fig_pnl.update_xaxes(
-        rangebreaks=[
-            dict(bounds=["sat", "mon"]) # hide weekends
-        ]
-    )
-    
-    if show:
-        fig_pnl.show()
-    
-    return fig_pnl
-
-def get_wealth_plot(history_df, show = False):
-    fig = make_subplots(
-        rows=2, cols=1, 
-        shared_xaxes=True, 
-        vertical_spacing=0.08,
-        row_heights=[0.6, 0.4],
-        subplot_titles=("Portfolio Value & Invested Capital", "Net Profit / Loss")
-    )
-    
-    # --- Graph 1: Wealth ---
-    # Invested Capital 
-    fig.add_trace(go.Scatter(
-        x=history_df.index, 
-        y=history_df['Invested_Capital'],
-        mode='lines',
-        name='Invested Capital',
-        line=dict(color='#94a3b8', width=1.5, dash='dot'), 
-        hovertemplate='Capital: $%{y:,.2f}'
-    ), row=1, col=1)
-
-    # Total Equity
-    fig.add_trace(go.Scatter(
-        x=history_df.index, 
-        y=history_df['Total_Equity'],
-        mode='lines',
-        name='Total Equity',
-        line=dict(color=COLOR_PORT_MAIN, width=2.5),
-        fill='tonexty', 
-        fillcolor='rgba(37, 99, 235, 0.08)',
-        hovertemplate='Total: $%{y:,.2f}'
-    ), row=1, col=1)
-
-    # --- Graph 2: PnL ---
-    fig.add_trace(go.Scatter(
-        x=history_df.index, 
-        y=history_df['PnL'],
-        mode='lines',
-        name='Net PnL',
-        line=dict(color=COLOR_ACCENT, width=2),
-        fill='tozeroy', 
-        fillcolor='rgba(139, 92, 246, 0.08)',
-        hovertemplate='PnL: $%{y:,.2f}'
-    ), row=2, col=1)
-
-    fig.add_hline(y=0, line_dash="solid", line_color="#cbd5e1", row=2, col=1)
-    
-    # Layout
-    fig.update_layout(
-        template="plotly_white",
-        hovermode="x unified",
-        height=700,
-        showlegend=True,
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=1.02, 
-            xanchor="right",
-            x=1
-        ),
-        margin=dict(l=50, r=20, t=60, b=50),
-        font=dict(family="Inter, sans-serif", size=12, color=COLOR_TEXT)
-    )
-
-    fig.update_yaxes(title_text="Value ($)", showgrid=True, gridcolor=COLOR_GRID, row=1, col=1)
-    fig.update_yaxes(title_text="PnL ($)", showgrid=True, gridcolor=COLOR_GRID, row=2, col=1)
-    fig.update_xaxes(showgrid=True, gridcolor=COLOR_GRID)
-    fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
-
-    if show:
-        fig.show()
-        
-    return fig
-
-def get_returns_plot(history_df, show=False):
-    benchmark_symbols = config.PLOT_BENCHMARK
-
-    fig = make_subplots(
-        rows=2, cols=1, 
-        shared_xaxes=True, 
-        vertical_spacing=0.08,
-        subplot_titles=("Historical Daily Returns", "Cumulative Return Comparison"),
-        row_heights=[0.5, 0.5]
-    )
-
-    # --- GRAPH 1: Daily Returns ---
-    daily_colors = [COLOR_POSITIVE if val >= 0 else COLOR_NEGATIVE for val in history_df['Daily_Return']]
-    
-    fig.add_trace(go.Bar(
-        x=history_df.index, 
-        y=history_df['Daily_Return'] * 100,
-        name='Daily Return %',
-        marker_color=daily_colors,
-        marker_line_width=0,
-        hovertemplate='%{y:.2f}%',
-        opacity=0.8
-    ), row=1, col=1)
-
-    # --- GRAPH 2: Cumulative Returns ---
-    # Portfolio returns
-    fig.add_trace(go.Scatter(
-        x=history_df.index, 
-        y=history_df['Cumulative_Return'] * 100,
-        mode='lines',
-        name='Portfolio',
-        line=dict(color=COLOR_PORT_MAIN, width=3), 
-        fill='tozeroy', 
-        fillcolor='rgba(37, 99, 235, 0.05)', 
-        hovertemplate='Portfolio: %{y:.2f}%'
-    ), row=2, col=1)
-
-    # Benchmark returns
-    start_date = history_df.index.min()
-    end_date = history_df.index.max()
-
-    benchmark_data = yf.download(benchmark_symbols, start=start_date, end=end_date + pd.Timedelta(days=1), progress=False, auto_adjust=True, group_by="column")["Close"]
-
-    if isinstance(benchmark_data, pd.Series):
-        benchmark_data = benchmark_data.to_frame(name=benchmark_symbols[0])
-
-    bench_palette = [COLOR_BENCHMARK, COLOR_ACCENT, '#f59e0b', '#ec4899']
-
-    for i, ticker in enumerate(benchmark_symbols):
-        if ticker in benchmark_data.columns:
-            series = benchmark_data[ticker].dropna(axis=0)
-            cum_return = (series / series.iloc[0]) - 1
-            color = bench_palette[i % len(bench_palette)]
-
-            fig.add_trace(go.Scatter(
-                x=cum_return.index,
-                y=cum_return * 100,
-                mode='lines',
-                name=ticker,
-                line=dict(color=color, width=1.5),
-                hovertemplate=f'{ticker}: %{{y:.2f}}%',
-                opacity=0.8
-            ), row=2, col=1)
-
-    # --- Layout ---
-    fig.update_layout(
-        template="plotly_white",
-        hovermode="x unified",
-        height=650, 
-        showlegend=True,
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=1.02, 
-            xanchor="right",
-            x=1
-        ),
-        bargap=0.05,
-        font=dict(family="Inter, sans-serif", size=12, color=COLOR_TEXT)
-    )
-
-    fig.add_hline(y=0, line_dash="solid", line_color="#cbd5e1", line_width=1, row=1, col=1)
-    fig.add_hline(y=0, line_dash="solid", line_color="#cbd5e1", line_width=1, row=2, col=1)
-
-    fig.update_xaxes(showgrid=True, gridcolor=COLOR_GRID)
-    fig.update_yaxes(title_text="Daily %", showgrid=True, gridcolor=COLOR_GRID, row=1, col=1)
-    fig.update_yaxes(title_text="Total %", showgrid=True, gridcolor=COLOR_GRID, row=2, col=1)
-    fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
-
-    if show:
-        fig.show()
-        
-    return fig
-
-def get_drawdown_plot(history_df, show=False):
-    cum_returns = (1 + history_df['Daily_Return']).cumprod()
-    running_max = cum_returns.cummax()
-    drawdown_pct = (cum_returns / running_max) - 1
-
-    fig_drawdown = make_subplots(
-        rows=2, cols=1, 
-        shared_xaxes=True, 
-        vertical_spacing=0.1,
-        subplot_titles=("Cumulative Return & Running Peak", "Portfolio Drawdown (Underwater)"),
-        row_heights=[0.6, 0.4]
-    )
-
-    # --- PLOT 1: Cumulative vs Running Max ---
-    fig_drawdown.add_trace(go.Scatter(
-        x=history_df.index, 
-        y=(running_max - 1) * 100,
-        mode='lines',
-        name='Peak Return',
-        line=dict(color='#94a3b8', width=1, dash='dot'),
-        hovertemplate='Peak: %{y:.2f}%'
-    ), row=1, col=1)
-
-    fig_drawdown.add_trace(go.Scatter(
-        x=history_df.index, 
-        y=(cum_returns - 1) * 100,
-        mode='lines',
-        name='Portfolio',
-        line=dict(color=COLOR_PORT_MAIN, width=2.5),
-        fill='tonexty',
-        fillcolor='rgba(239, 68, 68, 0.05)', # Faint red highlight for being below peak
-        hovertemplate='Return: %{y:.2f}%'
-    ), row=1, col=1)
-
-    # --- PLOT 2: Percentage Drawdown (Underwater) ---
-    fig_drawdown.add_trace(go.Scatter(
-        x=history_df.index, 
-        y=drawdown_pct * 100,
-        mode='lines',
-        name='Drawdown %',
-        line=dict(color=COLOR_NEGATIVE, width=1.5),
-        fill='tozeroy',
-        fillcolor='rgba(239, 68, 68, 0.15)',
-        hovertemplate='Drawdown: %{y:.2f}%'
-    ), row=2, col=1)
-
-    # Layout Adjustments
-    fig_drawdown.update_layout(
-        template="plotly_white",
-        height=600,
-        showlegend=True,
-        hovermode="x unified",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        margin=dict(l=50, r=20, t=60, b=50),
-        font=dict(family="Inter, sans-serif", size=12, color=COLOR_TEXT)
-    )
-
-    fig_drawdown.update_yaxes(title_text="Return %", showgrid=True, gridcolor=COLOR_GRID, row=1, col=1)
-    fig_drawdown.update_yaxes(title_text="Drawdown %", showgrid=True, gridcolor=COLOR_GRID, row=2, col=1)
-    fig_drawdown.update_xaxes(showgrid=True, gridcolor=COLOR_GRID)
-    fig_drawdown.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
-
-    if show:
-        fig_drawdown.show()
-        
-    return fig_drawdown
-
-def get_allocation(history_df, trades_df, portfolio_tracker, show=False):
-    last_holdings = {}
-
-    for sym in portfolio_tracker.symbols:
-        buys = trades_df[(trades_df['SYMBOL'] == sym) & (trades_df['BUY/SELL'] == 'BUY')]['QTY'].sum()
-        sells = trades_df[(trades_df['SYMBOL'] == sym) & (trades_df['BUY/SELL'] == 'SELL')]['QTY'].sum()
-        last_holdings[sym] = buys - sells
-
-    current_holdings = {k: v for k, v in last_holdings.items() if v > 0}
-    current_values = {}
-
-    for sym, qty in current_holdings.items():
-        if sym in portfolio_tracker.market_data and not portfolio_tracker.market_data[sym].empty:
-            price = portfolio_tracker.market_data[sym].iloc[-1]['Close']
-            current_values[sym] = qty * price
-
-    # Add Liquid Cash
-    current_cash = history_df['Cash'].iloc[-1]
-    if current_cash > 0:
-        current_values['__LIQUID_CASH__'] = current_cash
-
-    # Categorize Assets
-    asset_categories = {}
-    asset_sectors = {}
-
-    for sym in current_values.keys():
-        if sym == '__LIQUID_CASH__':
-            asset_categories[sym] = 'Cash & Equivalents'
-            asset_sectors[sym] = 'Cash'
-            continue
-
-        # 1. Ticker-specific overrides (highest priority)
-        if sym in mappings.TICKER_OVERRIDES:
-            cat = mappings.TICKER_OVERRIDES[sym]
-            asset_categories[sym] = cat
-            asset_sectors[sym] = cat
-            continue
-
-        info = portfolio_tracker.asset_info.get(sym, {})
-        quote_type = info.get('quoteType', 'UNKNOWN')
-        sector = info.get('sector', 'Unknown')
-        category_yf = info.get('category')  # yfinance ETF category
-        long_name = info.get('longName', '').lower()
-        
-        if quote_type == 'ETF':
-            # Check ETF category mapping
-            cat = mappings.ETF_CATEGORY_MAP.get(category_yf)
-            
-            # If no category mapping, fallback to keyword matching
-            if not cat:
-                if any(x in long_name for x in ['treasury', 'gov', 'bills', 'sovereign']):
-                    cat = 'Treasury Bonds'
-                elif any(x in long_name for x in ['corporate', 'credit', 'high yield']):
-                    cat = 'Corporate Bonds'
-                elif any(x in long_name for x in ['bond', 'fixed income']):
-                    cat = 'Other Fixed Income'
-                elif any(x in long_name for x in ['gold', 'silver', 'commodity', 'metal', 'uranium', 'copper']):
-                    cat = 'Commodities'
-                else:
-                    cat = 'Equity ETF (Other)'
-            
-            asset_categories[sym] = cat
-            asset_sectors[sym] = sector if sector != 'Unknown' else cat
-            
-        elif quote_type == 'EQUITY':
-            # Map stock sector using our standardized labels
-            cat = mappings.STOCK_SECTOR_MAP.get(sector, f"{sector} Stocks" if sector != 'Unknown' else 'Individual Stocks')
-            asset_categories[sym] = cat
-            asset_sectors[sym] = sector if sector != 'Unknown' else cat
-        else:
-            asset_categories[sym] = 'Other'
-            asset_sectors[sym] = sector if sector != 'Unknown' else 'Other'
-
-    # Group by Category
-    category_values = {}
-    for sym, val in current_values.items():
-        cat = asset_categories.get(sym, 'Other')
-        category_values[cat] = category_values.get(cat, 0) + val
-
-    # Group by Sector 
-    sector_values = {}
-    for sym, val in current_values.items():
-        sec = asset_sectors.get(sym, 'Other')
-        sector_values[sec] = sector_values.get(sec, 0) + val
-        
-
-    # Create & Format Allocation DataFrame
-    data_rows = []
-    total_portfolio_value = sum(current_values.values())
-
-    for sym, val in current_values.items():
-        data_rows.append({
-            'Symbol': sym,
-            'Category': asset_categories.get(sym, 'Other'),
-            'Sector': asset_sectors.get(sym, 'Other'),
-            'Value': val,
-            'Allocation (%)': (val / total_portfolio_value) * 100
-        })
-
-    df_allocation = pd.DataFrame(data_rows)
-    df_allocation = df_allocation.sort_values(by='Value', ascending=False).reset_index(drop=True)
-
-    # Visualization (Pie Charts)
-    df_by_category = df_allocation.groupby('Category')['Value'].sum().reset_index()
-
-    fig_alloc = make_subplots(
-        rows=1, cols=2, 
-        specs=[[{'type':'domain'}, {'type':'domain'}]],
-        subplot_titles=['Allocation by Symbol', 'Allocation by Asset Class'],
-    )
-
-    # Categorical Color Palette
-    cat_palette = ['#2563eb', '#10b981', '#8b5cf6', '#f59e0b', '#ec4899', '#06b6d4', '#84cc16', '#a855f7']
-
-    # Pie 1: By Symbol
-    fig_alloc.add_trace(go.Pie(
-        labels=df_allocation['Symbol'], 
-        values=df_allocation['Value'], 
-        name="Symbol",
-        hole=0.4,
-        textinfo='percent',
-        hoverinfo='label+value+percent',
-        marker=dict(colors=cat_palette, line=dict(color='#ffffff', width=2)),
-        textposition='inside', 
-    ), 1, 1)
-
-    # Pie 2: By Asset Class
-    fig_alloc.add_trace(go.Pie(
-        labels=df_by_category['Category'], 
-        values=df_by_category['Value'], 
-        name="Asset Class",
-        hole=0.4,
-        textinfo='percent',
-        hoverinfo='label+value+percent',
-        marker=dict(colors=cat_palette, line=dict(color='#ffffff', width=2)),
-        textposition='inside', 
-    ), 1, 2)
-    
-    fig_alloc.update_layout(
-        uniformtext_minsize=10, 
-        uniformtext_mode='hide',
-        margin=dict(t=80, b=120, l=20, r=20),
-        showlegend=True,
-        legend=dict(
-            orientation="h",
-            yanchor="top",
-            y=-0.25,
-            xanchor="center",
-            x=0.5
-        ),
-        font=dict(family="Inter, sans-serif", size=12, color=COLOR_TEXT),
-        template='plotly_white',
-        # Annotations for Donut center
-        annotations=[
-            dict(text='By Symbol', x=0.225, y=0.5, font_size=12, showarrow=False, font_weight='bold', xref="paper", yref="paper"),
-            dict(text='By Class', x=0.775, y=0.5, font_size=12, showarrow=False, font_weight='bold', xref="paper", yref="paper")
-        ]
-    )
-
-    # Display DataFrame
-    df_alloc = df_allocation.copy()
-    df_alloc['Value'] = df_alloc['Value'].apply(lambda x: f"${x:,.2f}")
-    df_alloc['Allocation (%)'] = df_alloc['Allocation (%)'].apply(lambda x: f"{x:.2f}%")
-
-    if show:
-        fig_alloc.show()
-
-    return fig_alloc, df_alloc, category_values, sector_values, current_values, current_holdings
-
-def get_quant_plots(history_df, show=False, windows=[21, 63]):
-    # Fetch benchmark data to align with portfolio history
-    start_date = history_df.index.min().strftime('%Y-%m-%d')
-    end_date = (history_df.index.max() + pd.Timedelta(days=1)).strftime('%Y-%m-%d')
-    bench_ticker = config.METRICS_BENCHMARK
-    
-    # Download benchmark data
-    bench_data = yf.download(bench_ticker, start=start_date, end=end_date, progress=False, auto_adjust=True)
-    bench_returns = bench_data['Close'].pct_change().fillna(0)
-    
-    # Handle multi-index columns if yfinance returns them
-    if isinstance(bench_returns, pd.DataFrame):
-        bench_returns = bench_returns.iloc[:, 0]
-        
-    # Align dates between portfolio and benchmark
-    df = pd.DataFrame({
-        'Port_Return': history_df['Daily_Return'],
-        'Bench_Return': bench_returns
-    }).dropna()
-    
-    fig = make_subplots(
-        rows=4, cols=1, 
-        shared_xaxes=True,
-        vertical_spacing=0.06,
-        subplot_titles=("Rolling Volatility (Annualized)", 
-                        f"Rolling Beta (vs {bench_ticker})", 
-                        "Rolling Alpha (Annualized)",
-                        "Rolling Sharpe Ratio")
-    )
-    
-    # Specific Colors for Rolling Charts
-    port_colors = [COLOR_PORT_MAIN, COLOR_ACCENT]
-    bench_colors = [COLOR_BENCHMARK, '#f59e0b']
-    
-    for i, w in enumerate(windows):
-        p_color = port_colors[i % len(port_colors)]
-        b_color = bench_colors[i % len(bench_colors)]
-
-        # Calculations
-        rolling_vol = df['Port_Return'].rolling(window=w).std() * np.sqrt(252)
-        bench_vol = df['Bench_Return'].rolling(window=w).std() * np.sqrt(252)
-        rolling_cov = df['Port_Return'].rolling(window=w).cov(df['Bench_Return'])
-        rolling_var = df['Bench_Return'].rolling(window=w).var()
-        rolling_beta = rolling_cov / rolling_var
-        rolling_alpha = (df['Port_Return'].rolling(window=w).mean() - (rolling_beta * df['Bench_Return'].rolling(window=w).mean())) * 252 
-        rolling_sharpe = (df['Port_Return'].rolling(window=w).mean() / df['Port_Return'].rolling(window=w).std()) * np.sqrt(252)
-        bench_sharpe = (df['Bench_Return'].rolling(window=w).mean() / df['Bench_Return'].rolling(window=w).std()) * np.sqrt(252)
-        
-        # --- Add Traces ---
-        fig.add_trace(go.Scatter(x=df.index, y=rolling_vol*100, mode='lines', name=f'Port Vol ({w}d)', line=dict(color=p_color, width=2)), row=1, col=1)
-        fig.add_trace(go.Scatter(x=df.index, y=bench_vol*100, mode='lines', name=f'Bench Vol ({w}d)', line=dict(color=b_color, dash='dot', width=1.5)), row=1, col=1)
-        fig.add_trace(go.Scatter(x=df.index, y=rolling_beta, mode='lines', name=f'Beta ({w}d)', line=dict(color=p_color, width=2)), row=2, col=1)
-        fig.add_trace(go.Scatter(x=df.index, y=rolling_alpha*100, mode='lines', name=f'Alpha ({w}d)', line=dict(color=p_color, width=2)), row=3, col=1)
-        fig.add_trace(go.Scatter(x=df.index, y=rolling_sharpe, mode='lines', name=f'Port Sharpe ({w}d)', line=dict(color=p_color, width=2)), row=4, col=1)
-        fig.add_trace(go.Scatter(x=df.index, y=bench_sharpe, mode='lines', name=f'Bench Sharpe ({w}d)', line=dict(color=b_color, dash='dot', width=1.5)), row=4, col=1)
-    
-    # Reference Lines 
-    fig.add_hline(y=1, line_dash="solid", line_color="#cbd5e1", opacity=0.8, row=2, col=1)
-    fig.add_hline(y=0, line_dash="solid", line_color="#cbd5e1", opacity=0.8, row=3, col=1)
-    fig.add_hline(y=1, line_dash="solid", line_color="#cbd5e1", opacity=0.8, row=4, col=1)
-    
-    fig.update_layout(
-        height=1000, 
-        template="plotly_white", 
-        showlegend=False, 
-        hovermode="x unified",
-        margin=dict(t=60, b=50, l=50, r=20),
-        font=dict(family="Inter, sans-serif", size=11, color=COLOR_TEXT)
-    )
-    
-    fig.update_yaxes(title_text="Volatility (%)", showgrid=True, gridcolor=COLOR_GRID, row=1, col=1)
-    fig.update_yaxes(title_text="Beta", showgrid=True, gridcolor=COLOR_GRID, row=2, col=1)
-    fig.update_yaxes(title_text="Alpha (%)", showgrid=True, gridcolor=COLOR_GRID, row=3, col=1)
-    fig.update_yaxes(title_text="Sharpe", showgrid=True, gridcolor=COLOR_GRID, row=4, col=1)
-    
-    # Hide weekends
-    fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
-    
-    if show:
-        fig.show()
-        
-    return fig
-
-def get_distribution_plot(history_df, show=False):
-    """Creates a histogram of daily returns overlaid with a fitted normal distribution,
-    annotated with VaR and CVaR thresholds."""
-    daily_returns = history_df['Daily_Return'].dropna() * 100  # Convert to percent
-
-    mean_ret = daily_returns.mean()
-    std_ret = daily_returns.std()
-
-    fig = go.Figure()
-
-    # Histogram of actual returns
-    fig.add_trace(go.Histogram(
-        x=daily_returns,
-        nbinsx=80,
-        name='Daily Returns',
-        marker_color='rgba(37, 99, 235, 0.6)',
-        marker_line=dict(color='rgba(37, 99, 235, 0.9)', width=0.5),
-        histnorm='probability density',
-        hovertemplate='Return: %{x:.2f}%<br>Density: %{y:.4f}'
-    ))
-
-    # Fitted Normal Distribution curve
-    x_range = np.linspace(daily_returns.min(), daily_returns.max(), 300)
-    normal_pdf = (1 / (std_ret * np.sqrt(2 * np.pi))) * np.exp(-0.5 * ((x_range - mean_ret) / std_ret) ** 2)
-
-    fig.add_trace(go.Scatter(
-        x=x_range,
-        y=normal_pdf,
-        mode='lines',
-        name=f'Normal (μ={mean_ret:.3f}%, σ={std_ret:.3f}%)',
-        line=dict(color='#D32F2F', width=2, dash='dash')
-    ))
-
-    # VaR (95%) vertical line
-    var_95 = np.percentile(daily_returns, 5)
-    fig.add_vline(
-        x=var_95, line_dash="dash", line_color="#EF6C00", line_width=2,
-        annotation_text=f"VaR 95%: {var_95:.2f}%",
-        annotation_position="top right",
-        annotation_font=dict(color="#EF6C00", size=11)
-    )
-
-    # CVaR (Expected Shortfall) vertical line
-    tail = daily_returns[daily_returns <= var_95]
-    if len(tail) > 0:
-        cvar = tail.mean()
-        fig.add_vline(
-            x=cvar, line_dash="dot", line_color="#B71C1C", line_width=2,
-            annotation_text=f"CVaR 95%: {cvar:.2f}%",
-            annotation_position="top left",
-            annotation_font=dict(color="#B71C1C", size=11)
-        )
-
-    fig.update_layout(
-        template='plotly_white',
-        title='Daily Return Distribution vs. Normal Fit',
-        xaxis_title='Daily Return (%)',
-        yaxis_title='Probability Density',
-        showlegend=True,
-        legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1),
-        height=450,
-        hovermode='x unified',
-        margin=dict(t=80, b=50, l=50, r=30)
-    )
-
-    if show:
-        fig.show()
-
-    return fig
-
-def get_correlation_heatmap(portfolio_tracker, current_holdings, show=False):
-    """Creates an annotated heatmap of pairwise correlations for all currently held assets."""
-    symbols = list(current_holdings.keys())
-
-    if len(symbols) < 2:
-        # Need at least 2 assets for a correlation matrix
-        fig = go.Figure()
-        fig.add_annotation(text="Need at least 2 holdings for correlation analysis.",
-                           xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False,
-                           font=dict(size=16, color="#6b7280"))
-        fig.update_layout(template='plotly_white', height=400)
-        return fig
-
-    # Build a DataFrame of daily returns for each held asset
-    returns_dict = {}
-    for sym in symbols:
-        if sym in portfolio_tracker.market_data and not portfolio_tracker.market_data[sym].empty:
-            close = portfolio_tracker.market_data[sym]['Close'].copy()
-            if close.index.tz is not None:
-                close.index = close.index.tz_localize(None)
-            returns_dict[sym] = close.pct_change().fillna(0)
-
-    if len(returns_dict) < 2:
-        fig = go.Figure()
-        fig.add_annotation(text="Insufficient price data for correlation analysis.",
-                           xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False,
-                           font=dict(size=16, color="#6b7280"))
-        fig.update_layout(template='plotly_white', height=400)
-        return fig
-
-    df_returns = pd.DataFrame(returns_dict).dropna()
-    corr_matrix = df_returns.corr()
-
-    # Round for display
-    corr_text = corr_matrix.round(2).values.tolist()
-
-    # Color scale: blue (negative) -> white (zero) -> red (positive)
-    colorscale = [
-        [0.0, '#2563eb'],   # Strong negative = blue
-        [0.5, '#ffffff'],   # Zero = white
-        [1.0, '#dc2626'],   # Strong positive = red
-    ]
-
-    fig = go.Figure(data=go.Heatmap(
-        z=corr_matrix.values,
-        x=corr_matrix.columns.tolist(),
-        y=corr_matrix.index.tolist(),
-        text=corr_text,
-        texttemplate='%{text}',
-        textfont=dict(size=11),
-        colorscale=colorscale,
-        zmin=-1, zmax=1,
-        colorbar=dict(title='Correlation', thickness=15, len=0.75),
-        hovertemplate='%{x} vs %{y}<br>Correlation: %{z:.3f}<extra></extra>'
-    ))
-
-    fig.update_layout(
-        template='plotly_white',
-        title='Pairwise Asset Correlation Matrix',
-        height=max(450, 50 + len(symbols) * 35),
-        margin=dict(t=60, b=60, l=80, r=40),
-        xaxis=dict(side='bottom', tickangle=-45),
-        yaxis=dict(autorange='reversed'),
-    )
-
-    if show:
-        fig.show()
-
-    return fig
-
-def get_beta_exposure_plot(portfolio_tracker, current_holdings, current_values, show=False):
-    """Calculates individual asset betas and shows a side-by-side comparison of
-    nominal (dollar) allocation vs. beta-adjusted exposure."""
-    benchmark_symbol = config.METRICS_BENCHMARK
-    symbols = list(current_holdings.keys())
-
-    if not symbols:
-        fig = go.Figure()
-        fig.add_annotation(text="No equity holdings for beta analysis.",
-                           xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False,
-                           font=dict(size=16, color="#6b7280"))
-        fig.update_layout(template='plotly_white', height=400)
-        return fig, pd.DataFrame()
-
-    # Get benchmark returns
-    try:
-        bench_data = portfolio_tracker.market_data.get(benchmark_symbol)
-        if bench_data is None or bench_data.empty:
-            bench_ticker = yf.Ticker(benchmark_symbol)
-            bench_data = bench_ticker.history(period="1y")
-        bench_returns = bench_data['Close'].pct_change().dropna()
-        if bench_returns.index.tz is not None:
-            bench_returns.index = bench_returns.index.tz_localize(None)
-    except Exception:
-        fig = go.Figure()
-        fig.add_annotation(text=f"Could not fetch {benchmark_symbol} data for beta calculation.",
-                           xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False,
-                           font=dict(size=16, color="#6b7280"))
-        fig.update_layout(template='plotly_white', height=400)
-        return fig, pd.DataFrame()
-
-    # --- VECTORIZED BETA CALCULATION ---
-    # Collect all asset returns into one DataFrame
-    returns_list = []
-    valid_symbols = []
-    
-    for sym in symbols:
-        if sym in portfolio_tracker.market_data and not portfolio_tracker.market_data[sym].empty:
-            asset_close = portfolio_tracker.market_data[sym]['Close']
-            asset_ret = asset_close.pct_change().dropna()
-            if asset_ret.index.tz is not None:
-                asset_ret.index = asset_ret.index.tz_localize(None)
-            returns_list.append(asset_ret)
-            valid_symbols.append(sym)
-    
-    if not returns_list:
-        return go.Figure(), pd.DataFrame()
-
-    # Align all returns with benchmark
-    all_returns = pd.concat(returns_list, axis=1, keys=valid_symbols)
-    # Add benchmark to alignment
-    all_returns['BENCHMARK'] = bench_returns
-    all_returns = all_returns.dropna()
-
-    if len(all_returns) < 20:
-        # Fallback to 1.0 if not enough data
-        betas = {sym: 1.0 for sym in valid_symbols}
-    else:
-        # Matrix-based beta calculation: cov(X, Y) / var(Y)
-        matrix = all_returns.cov()
-        bench_var = matrix.loc['BENCHMARK', 'BENCHMARK']
-        betas = (matrix.loc[valid_symbols, 'BENCHMARK'] / bench_var).to_dict()
-
-    rows = []
-    total_portfolio_value = sum(current_values.values())
-
-    for sym in valid_symbols:
-        beta = betas.get(sym, 1.0)
-        nominal_val = current_values.get(sym, 0)
-        beta_adj_val = nominal_val * beta
-        nominal_pct = (nominal_val / total_portfolio_value) * 100
-        beta_adj_pct = (beta_adj_val / total_portfolio_value) * 100
-
-        rows.append({
-            'Symbol': sym,
-            'Beta': round(beta, 2),
-            'Nominal ($)': nominal_val,
-            'Nominal (%)': round(nominal_pct, 1),
-            'Beta-Adj ($)': beta_adj_val,
-            'Beta-Adj (%)': round(beta_adj_pct, 1),
-        })
-
-    df_beta = pd.DataFrame(rows).sort_values('Nominal ($)', ascending=True)
-
-    fig = go.Figure()
-
-    # Nominal allocation bars
-    fig.add_trace(go.Bar(
-        y=df_beta['Symbol'],
-        x=df_beta['Nominal (%)'],
-        name='Nominal Allocation (%)',
-        orientation='h',
-        marker_color='rgba(37, 99, 235, 0.7)',
-        text=df_beta['Nominal (%)'].apply(lambda x: f'{x:.1f}%'),
-        textposition='outside',
-        hovertemplate='%{y}<br>Nominal: %{x:.1f}%<extra></extra>'
-    ))
-
-    # Beta-adjusted exposure bars
-    fig.add_trace(go.Bar(
-        y=df_beta['Symbol'],
-        x=df_beta['Beta-Adj (%)'],
-        name='Beta-Adjusted Exposure (%)',
-        orientation='h',
-        marker_color='rgba(220, 38, 38, 0.7)',
-        text=df_beta.apply(lambda r: f'{r["Beta-Adj (%)"]:.1f}% (β={r["Beta"]:.2f})', axis=1),
-        textposition='outside',
-        hovertemplate='%{y}<br>Beta-Adj: %{x:.1f}%<extra></extra>'
-    ))
-
-    fig.update_layout(
-        template='plotly_white',
-        title=f'Nominal vs. Beta-Adjusted Exposure (Benchmark: {benchmark_symbol})',
-        xaxis_title='Portfolio Weight (%)',
-        barmode='group',
-        height=max(400, 60 + len(df_beta) * 40),
-        legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1),
-        margin=dict(t=80, b=50, l=80, r=100),
-        bargap=0.25,
-    )
-
-    if show:
-        fig.show()
-
-    return fig, df_beta
-
 def fetch_fama_french_factors(start_date, end_date):
     """Fetches Fama-French 3-Factor daily data with local caching."""
     import urllib.request
@@ -1126,500 +85,686 @@ def fetch_fama_french_factors(start_date, end_date):
         print(f"⚠️  Error fetching Fama-French factors: {e}")
         return None
 
-def get_factor_analysis_plot(history_df, show=False):
-    """Runs a Fama-French 3-factor OLS regression and produces a combined visualization
-    with a factor loadings bar chart and a regression summary table."""
+class PortfolioAnalyzer:
+    def __init__(self, history_df, trades_df, portfolio_tracker):
+        self.history_df = history_df.copy()
+        self.trades_df = trades_df.copy()
+        self.portfolio_tracker = portfolio_tracker
+        self.metrics = None
+        self.allocation_data = None
+        
+        # Core data preparation
+        self._prepare_data()
 
-    start_date = history_df.index.min().strftime('%Y-%m-%d')
-    end_date = history_df.index.max().strftime('%Y-%m-%d')
-
-    ff_df = fetch_fama_french_factors(start_date, end_date)
-    if ff_df is None or ff_df.empty:
-        fig = go.Figure()
-        fig.add_annotation(text="Could not retrieve Fama-French factor data.",
-                           xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False,
-                           font=dict(size=16, color="#6b7280"))
-        fig.update_layout(template='plotly_white', height=400)
-        return fig, {}
-
-    # Align portfolio returns with factor data
-    port_returns = history_df['Daily_Return'].copy()
-    port_returns.index = pd.to_datetime(port_returns.index)
-
-    aligned = pd.DataFrame({
-        'Portfolio': port_returns,
-        'Mkt-RF': ff_df['Mkt-RF'],
-        'SMB': ff_df['SMB'],
-        'HML': ff_df['HML'],
-        'RF': ff_df['RF']
-    }).dropna()
-
-    if len(aligned) < 30:
-        fig = go.Figure()
-        fig.add_annotation(text="Insufficient overlapping data for factor regression (need 30+ days).",
-                           xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False,
-                           font=dict(size=16, color="#6b7280"))
-        fig.update_layout(template='plotly_white', height=400)
-        return fig, {}
-
-    # Dependent variable: Portfolio excess returns
-    y = (aligned['Portfolio'] - aligned['RF']).values
-    # Independent variables: Mkt-RF, SMB, HML (with intercept)
-    X = aligned[['Mkt-RF', 'SMB', 'HML']].values
-    X_with_const = np.column_stack([np.ones(len(X)), X])  # Add intercept column
-
-    # OLS via numpy: beta = (X'X)^-1 X'y
-    try:
-        betas, residuals, rank, sv = np.linalg.lstsq(X_with_const, y, rcond=None)
-    except np.linalg.LinAlgError:
-        fig = go.Figure()
-        fig.add_annotation(text="Factor regression failed (singular matrix).",
-                           xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False,
-                           font=dict(size=16, color="#6b7280"))
-        fig.update_layout(template='plotly_white', height=400)
-        return fig, {}
-
-    alpha_daily = betas[0]
-    mkt_beta = betas[1]
-    smb_beta = betas[2]
-    hml_beta = betas[3]
-
-    # Calculate R-squared
-    y_pred = X_with_const @ betas
-    ss_res = np.sum((y - y_pred) ** 2)
-    ss_tot = np.sum((y - y.mean()) ** 2)
-    r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
-
-    # Calculate standard errors and t-statistics
-    n = len(y)
-    k = X_with_const.shape[1]
-    mse = ss_res / (n - k) if n > k else ss_res
-    var_beta = mse * np.linalg.inv(X_with_const.T @ X_with_const).diagonal()
-    se = np.sqrt(np.abs(var_beta))
-    t_stats = betas / se
-    # p-values (two-tailed) using scipy.stats.t distribution
-    from scipy.stats import t as t_dist
-    p_values = 2 * (1 - t_dist.cdf(np.abs(t_stats), df=n - k))
-
-    # Annualize alpha
-    alpha_annual = (1 + alpha_daily) ** 252 - 1
-
-    factor_results = {
-        'alpha_daily': alpha_daily,
-        'alpha_annual': alpha_annual,
-        'alpha_p_value': p_values[0],
-        'mkt_beta': mkt_beta,
-        'mkt_p_value': p_values[1],
-        'smb_beta': smb_beta,
-        'smb_p_value': p_values[2],
-        'hml_beta': hml_beta,
-        'hml_p_value': p_values[3],
-        'r_squared': r_squared,
-        'n_obs': n,
-    }
-
-    # --- Visualization ---
-    fig = make_subplots(
-        rows=1, cols=2,
-        column_widths=[0.55, 0.45],
-        specs=[[{"type": "bar"}, {"type": "table"}]],
-        subplot_titles=["Factor Loadings (Betas)", "Regression Summary"]
-    )
-
-    # Bar chart of factor loadings
-    factor_names = ['Mkt-RF (β₁)', 'SMB (β₂)', 'HML (β₃)']
-    factor_betas = [mkt_beta, smb_beta, hml_beta]
-    factor_pvals = [p_values[1], p_values[2], p_values[3]]
-    bar_colors = ['#2563eb' if b >= 0 else '#dc2626' for b in factor_betas]
-
-    # Add significance stars
-    def sig_stars(p):
-        if p < 0.001: return '***'
-        if p < 0.01: return '**'
-        if p < 0.05: return '*'
-        return ''
-
-    bar_text = [f'{b:.3f}{sig_stars(p)}' for b, p in zip(factor_betas, factor_pvals)]
-
-    fig.add_trace(go.Bar(
-        x=factor_names,
-        y=factor_betas,
-        marker_color=bar_colors,
-        text=bar_text,
-        textposition='outside',
-        textfont=dict(size=13, weight='bold' ),
-        hovertemplate='%{x}<br>Beta: %{y:.4f}<extra></extra>',
-        showlegend=False,
-    ), row=1, col=1)
-
-    fig.add_hline(y=0, line_dash="solid", line_color="#333", line_width=1, row=1, col=1)
-    fig.add_hline(y=1, line_dash="dash", line_color="#999", line_width=1, row=1, col=1)
-
-    # Summary table
-    def fmt_p(p):
-        stars = sig_stars(p)
-        return f'{p:.4f} {stars}'
-
-    table_header = ['Metric', 'Value']
-    table_cells = [
-        ['FF Alpha (Ann.)', f'{alpha_annual:.2%}'],
-        ['Alpha p-value', fmt_p(p_values[0])],
-        ['Mkt-RF (β₁)', f'{mkt_beta:.4f}'],
-        ['SMB (β₂)', f'{smb_beta:.4f}'],
-        ['HML (β₃)', f'{hml_beta:.4f}'],
-        ['R²', f'{r_squared:.4f}'],
-        ['Observations', f'{n}'],
-    ]
-
-    fig.add_trace(go.Table(
-        header=dict(
-            values=table_header,
-            fill_color='#f9fafb',
-            align='left',
-            font=dict(size=13, color='#374151', weight='bold'),
-            line_color='#e5e7eb',
-            height=32
-        ),
-        cells=dict(
-            values=[[r[0] for r in table_cells], [r[1] for r in table_cells]],
-            fill_color=[['white'] * len(table_cells)],
-            align='left',
-            font=dict(size=13, color='#111827'),
-            line_color='#e5e7eb',
-            height=30
-        )
-    ), row=1, col=2)
-
-    fig.update_layout(
-        template='plotly_white',
-        height=420,
-        margin=dict(t=50, b=40, l=50, r=30),
-        showlegend=False,
-    )
-
-    fig.update_yaxes(title_text='Factor Loading', row=1, col=1)
-
-    if show:
-        fig.show()
-
-    return fig, factor_results
-
-def get_summary_sheet(history_df, category_values, sector_values, current_values, current_holdings, factor_results=None, mc_results=None, trade_results=None):
-    # Fetch HKD Rate
-    try:
-        hkd_ticker = yf.Ticker("HKD=X")
-        hkd_rate = hkd_ticker.history(period="1d")['Close'].iloc[-1]
-    except Exception as e:
-        print(f"Error fetching HKD rate: {e}")
-        hkd_rate = 7.78  
-
-    current_equity = history_df['Total_Equity'].iloc[-1]
-    current_market_value = history_df['Market_Value'].iloc[-1]
-    current_cash = history_df['Cash'].iloc[-1]
-    total_return_abs = history_df['PnL'].iloc[-1]
-
-    if 'metrics' not in locals():
-        metrics = calculate_performance_metrics(history_df)
-
-    first_date = metrics.get('first_date', 0)
-    total_return = metrics.get('total_return', 0)
-    total_cum_return = metrics.get('total_cum_return', 0)
-    max_return = metrics.get('max_return', 0)
-    benchmark_total_return = metrics.get('benchmark_return', 0)
-    alpha = metrics.get('alpha', 0)
-    volatility = metrics.get('volatility', 0)
-    sharpe_ratio = metrics.get('sharpe_ratio', 0)
-    benchmark_sharpe_ratio = metrics.get('benchmark_sharpe_ratio', 0)
-    sortino_ratio = metrics.get('sortino_ratio', 0)
-    benchmark_sortino_ratio = metrics.get('benchmark_sortino_ratio', 0)
-    portfolio_beta = metrics.get('portfolio_beta', 0)
-    tracking_error = metrics.get('tracking_error', 0)
-    max_drawdown = metrics.get('max_drawdown', 0)
-    var_95_dollar = metrics.get('var_95_dollar', 0)
-    var_95_percent_return = metrics.get('var_95_percent_return',0)
-    down_capture = metrics.get('down_capture', 0)
-    up_capture = metrics.get('up_capture', 0)
-    skewness = metrics.get('skewness', np.nan)
-    kurtosis_val = metrics.get('kurtosis', np.nan)
-    cvar_95 = metrics.get('cvar_95', np.nan)
-    ulcer_index = metrics.get('ulcer_index', np.nan)
-    avg_ttr = metrics.get('avg_ttr', 0)
-    max_ttr = metrics.get('max_ttr', 0)
+    def _prepare_data(self):
+        """Ensures fundamental return and PnL columns are present in history_df."""
+        df = self.history_df
+        df['Prev_Equity'] = df['Total_Equity'].shift(1)
+        
+        # Time-weighted daily return formula
+        df['Daily_Return'] = (
+            (df['Total_Equity'] - df['Prev_Equity'] - df['Net_Flow']) / 
+            (df['Prev_Equity'] + 0.5 * df['Net_Flow'])
+        ).fillna(0)
+        
+        df['Daily_PnL'] = df['Total_Equity'] - df['Prev_Equity'] - df['Net_Flow']
+        df['Cumulative_Return'] = (1 + df['Daily_Return']).cumprod() - 1
+        df['PnL'] = df['Total_Equity'] - df['Invested_Capital']
+        
+        # Risk-Free Rate
+        try:
+            irx_ticker = yf.Ticker("^IRX")
+            start_date_str = df.index.min().strftime('%Y-%m-%d')
+            irx_hist = irx_ticker.history(start=start_date_str)['Close']
+            irx_hist.index = irx_hist.index.tz_localize(None)
+            
+            df['Risk_Free_Rate_Annual'] = irx_hist / 100  # Convert percentage to decimal
+            df['Risk_Free_Rate_Annual'] = df['Risk_Free_Rate_Annual'].ffill().fillna(0.04)
+            df['Risk_Free_Rate_Daily'] = (1 + df['Risk_Free_Rate_Annual']) ** (1/365) - 1
+        except Exception as e:
+            print(f"Error fetching Risk Free Rate: {e}")
+            df['Risk_Free_Rate_Daily'] = (1.04 ** (1/365)) - 1
     
-    try:
-        total_val = current_equity  
+    def calculate_metrics(self):
+        """Calculates performance and risk metrics. Returns a dictionary of results."""
+        df = self.history_df
         
-        if 'category_values' in locals() and category_values:
-            # Sort categories by value (x[1]) in descending order
-            sorted_categories = sorted(category_values.items(), key=lambda x: x[1], reverse=True)
-            asset_alloc_str = " | ".join([f"{k} {v/total_val:.1%}" for k, v in sorted_categories])
-        else:
-            asset_alloc_str = "Not Available"
-        
-        if 'sector_values' in locals() and sector_values:
-            sorted_sectors = sorted(sector_values.items(), key=lambda x: x[1], reverse=True)[:3]
-            sector_alloc_str = " | ".join([f"{k} {v/total_val:.1%}" for k, v in sorted_sectors])
-        else:
-            sector_alloc_str = "Not Available"
-        
-        if 'current_values' in locals() and current_values:
-            sorted_holdings = sorted(current_values.items(), key=lambda x: x[1], reverse=True)
-            top_10_val = sum([x[1] for x in sorted_holdings[:10]])
-            top_10_pct = top_10_val / total_val
-            num_holdings = len(current_holdings) if 'current_holdings' in locals() else len(current_values)
-        else:
-            top_10_pct = 0
-            num_holdings = 0
-        
-    except Exception as e:
-        print(f"Error in composition metrics: {e}")
-        asset_alloc_str = "Error"
-        sector_alloc_str = "Error"
-        top_10_pct = 0
-        num_holdings = 0
-
-    # Styling 
-    def color_val(val, is_pct=False, reverse=False, show_hkd=True):
+        # Benchmark & Beta calculation (Vectorized where possible)
         try:
-            if is_pct:
-                color = "green" if val >= 0 else "red"
-                if reverse:
-                    color = "red" if val >= 0 else "green"
-                fmt = f"{val:.2%}"
-                return f'<span style="color: {color}; font-weight: bold;">{fmt}</span>'
-            else:
-                color = "green" if val >= 0 else "red"
-                if reverse:
-                    color = "red" if val >= 0 else "green"
+            benchmark_symbol = config.METRICS_BENCHMARK
+            benchmark_ticker = yf.Ticker(benchmark_symbol)
+            start_date_str = df.index.min().strftime('%Y-%m-%d')
+            benchmark_hist = benchmark_ticker.history(start=start_date_str)['Close']
+            benchmark_hist.index = benchmark_hist.index.tz_localize(None)
+            benchmark_returns = benchmark_hist.pct_change().fillna(0)
+            
+            # Align benchmarks with portfolio date range
+            aligned_data = pd.DataFrame({
+                'Portfolio': df['Daily_Return'],
+                benchmark_symbol: benchmark_returns,
+                'Risk_Free_Rate': df['Risk_Free_Rate_Daily']
+            }, index=df.index).dropna()
+            
+            if len(aligned_data) > 10:
+                # Use OLS for beta and alpha
+                beta, alpha_ols, r_value, p_value, std_err = stats.linregress(
+                    aligned_data[benchmark_symbol], aligned_data['Portfolio']
+                )
+                portfolio_beta = beta
+                benchmark_total_return = (1 + aligned_data[benchmark_symbol]).prod() - 1
+                tracking_error = (aligned_data['Portfolio'] - aligned_data[benchmark_symbol]).std() * np.sqrt(252)
                 
-                if show_hkd:
-                    hkd_val = val * hkd_rate
-                    fmt = f"US$ {val:,.2f} <span style='font-size: 0.8em; color: #666; font-weight: normal;'>| HK$ {hkd_val:,.2f}</span>"
+                # Capture Ratios
+                down_market = aligned_data[aligned_data[benchmark_symbol] < 0]
+                if len(down_market) > 5:
+                    port_down = (1 + down_market['Portfolio']).prod() - 1
+                    bench_down = (1 + down_market[benchmark_symbol]).prod() - 1
+                    down_capture = port_down / bench_down if bench_down != 0 else np.nan
                 else:
-                    fmt = f"US$ {val:,.2f}"
-                    
-                return f'<span style="color: {color}; font-weight: bold;">{fmt}</span>'
-        except:
-            return f'<span style="color: #666; font-weight: bold;">N/A</span>'
+                    down_capture = np.nan
 
-    def format_val(val, is_pct=False, show_hkd=True):
-        try:
-            color = "green" if val >= 0 else "red"
-            if is_pct:
-                fmt = f"{val:.2%}"
-                return f'<span style="color: {color}; font-weight: bold;">{fmt}</span>'
+                up_market = aligned_data[aligned_data[benchmark_symbol] > 0]
+                if len(up_market) > 5:
+                    port_up = (1 + up_market['Portfolio']).prod() - 1
+                    bench_up = (1 + up_market[benchmark_symbol]).prod() - 1
+                    up_capture = port_up / bench_up if bench_up != 0 else np.nan
+                else:
+                    up_capture = np.nan
+
+                # Benchmark Sharpe & Sortino
+                excess_bench = aligned_data[benchmark_symbol] - aligned_data['Risk_Free_Rate']
+                benchmark_sharpe_ratio = (excess_bench.mean() * 252) / (aligned_data[benchmark_symbol].std() * np.sqrt(252)) if aligned_data[benchmark_symbol].std() > 0 else np.nan
+                
+                downside_bench = aligned_data[benchmark_symbol][aligned_data[benchmark_symbol] < aligned_data['Risk_Free_Rate']]
+                benchmark_sortino_ratio = (excess_bench.mean() * 252) / (downside_bench.std() * np.sqrt(252)) if len(downside_bench) > 1 and downside_bench.std() > 0 else np.nan
             else:
-                hkd_text = f" <span style='font-size: 0.8em; color: #666; font-weight: normal;'>| HK$ {val * hkd_rate:,.2f}</span>" if show_hkd else ""
-                fmt = f"US$ {val:,.2f}{hkd_text}"
-                return f'<span style="color: {color}; font-weight: bold;">{fmt}</span>'
-        except:
-            return '<span style="color: #666; font-weight: bold;">N/A</span>'
-
-    # Return a dictionary of data instead of an HTML string
-    summary_data = {
-        "first_date": first_date.strftime('%Y-%m-%d'),
-        "current_date": datetime.now().strftime('%Y-%m-%d'),
-        "hkd_rate": f"{hkd_rate:.4f}",
-        "current_equity_usd": f"{current_equity:,.2f}",
-        "current_equity_hkd": f"{current_equity * hkd_rate:,.2f}",
-        "current_market_value_usd": f"{current_market_value:,.2f}",
-        "current_market_value_hkd": f"{current_market_value * hkd_rate:,.2f}",
-        "current_cash_usd": f"{current_cash:,.2f}",
-        "current_cash_hkd": f"{current_cash * hkd_rate:,.2f}",
-        "total_return_abs_html": format_val(total_return_abs, show_hkd=True),
-        "total_return_pct_html": format_val(total_return, is_pct=True),
-        "max_return_html": format_val(max_return, show_hkd=True),
-        "total_cum_return_html": format_val(total_cum_return, is_pct=True),
-        "benchmark_total_return": f"{benchmark_total_return:.2%}",
-        "alpha_html": format_val(alpha, is_pct=True),
-        "volatility": f"{volatility:.2%}",
-        "sharpe_ratio": f"{sharpe_ratio:.2f}",
-        "benchmark_sharpe_ratio": f"{benchmark_sharpe_ratio:.2f}",
-        "sortino_ratio": f"{sortino_ratio:.2f}",
-        "benchmark_sortino_ratio": f"{benchmark_sortino_ratio:.2f}",
-        "portfolio_beta": f"{portfolio_beta:.2f}",
-        "tracking_error": f"{tracking_error:.2%}",
-        "max_drawdown": f"{max_drawdown:.2%}",
-        "var_95_percent_return": f"{var_95_percent_return:.2%}",
-        "down_capture": f"{down_capture:.2f}",
-        "up_capture": f"{up_capture:.2f}",
-        "asset_alloc_str": asset_alloc_str,
-        "sector_alloc_str": sector_alloc_str,
-        "top_10_pct": f"{top_10_pct:.1%}",
-        "num_holdings": num_holdings,
-        "benchmark_name": config.METRICS_BENCHMARK,
-        # Advanced Risk Metrics
-        "skewness": f"{skewness:.3f}" if not np.isnan(skewness) else "N/A",
-        "kurtosis": f"{kurtosis_val:.3f}" if not np.isnan(kurtosis_val) else "N/A",
-        "cvar_95": f"{cvar_95:.2%}" if not np.isnan(cvar_95) else "N/A",
-        "ulcer_index": f"{ulcer_index:.3f}" if not np.isnan(ulcer_index) else "N/A",
-        "avg_ttr": f"{avg_ttr:.0f} days",
-        "max_ttr": f"{max_ttr:.0f} days",
-        # Fama-French Factor Results
-        "ff_alpha": f"{factor_results.get('alpha_annual', 0):.2%}" if factor_results else "N/A",
-        "ff_alpha_pval": f"{factor_results.get('alpha_p_value', 1):.4f}" if factor_results else "N/A",
-        "ff_mkt_beta": f"{factor_results.get('mkt_beta', 0):.4f}" if factor_results else "N/A",
-        "ff_smb": f"{factor_results.get('smb_beta', 0):.4f}" if factor_results else "N/A",
-        "ff_hml": f"{factor_results.get('hml_beta', 0):.4f}" if factor_results else "N/A",
-        "ff_r_squared": f"{factor_results.get('r_squared', 0):.4f}" if factor_results else "N/A",
-        # Monte Carlo Significance & Risk
-        "mc_p_value": f"{mc_results.get('p_value', 1):.4f}" if mc_results and not np.isnan(mc_results.get('p_value', 1)) else "N/A",
-        "expected_max_dd_95": f"{mc_results.get('expected_max_dd_95', 0):.2%}" if mc_results and not np.isnan(mc_results.get('expected_max_dd_95', 0)) else "N/A",
-        # Trade Analysis Metrics
-        "total_trades": trade_results.get('total_trades', 0) if trade_results else "N/A",
-        "win_rate": f"{trade_results.get('hit_rate', 0):.1%}" if trade_results else "N/A",
-        "avg_win": f"${trade_results.get('avg_win', 0):,.2f}" if trade_results else "N/A",
-        "avg_loss": f"${trade_results.get('avg_loss', 0):,.2f}" if trade_results else "N/A",
-        "profit_factor": f"{trade_results.get('profit_factor', 0):.2f}" if trade_results else "N/A",
-        "expectancy": f"${trade_results.get('expectancy', 0):,.2f}" if trade_results else "N/A",
-        "total_realized_pnl_html": format_val(trade_results.get('total_realized_pnl', 0), show_hkd=True) if trade_results else "N/A"
-    }
-
-    return summary_data
-
-    summary_sheet = f"""
-    <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 1000px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden; background-color: #ffffff;">
-        <div style="padding: 20px; border-bottom: 1px solid #e0e0e0; display: flex; justify-content: space-between; align-items: center; background-color: #ffffff;">
-            <h2 style="margin: 0; color: #222;">PORTFOLIO SUMMARY</h2>
-            <div style="text-align: right; color: #444; font-size: 0.9em;">
-                <div>From {first_date.strftime('%Y-%m-%d')}</div>
-                <div>As of {datetime.now().strftime('%Y-%m-%d')}</div>
-                <div>USD/HKD: {hkd_rate:.4f}</div>
-            </div>
-        </div>
-
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0; border-bottom: 1px solid #e0e0e0; background-color: #ffffff;">
-            <!-- VALUE & RETURN -->
-            <div style="padding: 20px; border-right: 1px solid #e0e0e0; background-color: #ffffff;">
-                <h3 style="margin-top: 0; color: #333; border-bottom: 2px solid #007bff; padding-bottom: 5px; display: inline-block;">VALUE & RETURN</h3>
-                <div style="margin-bottom: 10px;">
-                    <div style="font-size: 0.9em; color: #444; font-weight: 600;">Total Portfolio Value</div>
-                    <div style="font-size: 1.4em; font-weight: bold; color: #000;">US$ {current_equity:,.2f} <span style="font-size: 0.7em; color: #555; font-weight: normal;">| HK$ {current_equity*hkd_rate:,.2f}</span></div>
-                </div>
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
-                    <div>
-                        <div style="font-size: 0.85em; color: #444; font-weight: 600;">Market Value</div>
-                        <div style="font-weight: 500; color: #222;">US$ {current_market_value:,.2f} <span style="font-size: 0.8em; color: #666;">| HK$ {current_market_value*hkd_rate:,.2f}</span></div>
-
-                    </div>
-                    <div>
-                        <div style="font-size: 0.85em; color: #444; font-weight: 600;">Cash</div>
-                        <div style="font-weight: 500; color: #222;">US$ {current_cash:,.2f} <span style="font-size: 0.8em; color: #666;">| HK$ {current_cash*hkd_rate:,.2f}</span></div>
-                    </div>
-                </div>
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
-                    <div>
-                        <div style="font-size: 0.85em; color: #444; font-weight: 600;">Total Return ($)</div>
-                        <div>{color_val(total_return_abs, show_hkd=True)}</div>
-                    </div>
-                    <div>
-                        <div style="font-size: 0.85em; color: #444; font-weight: 600;">Total Return (%)</div>
-                        <div>{color_val(total_return, is_pct=True, show_hkd=True)}</div>
-                    </div>
-                </div>
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
-                    <div>
-                        <div style="font-size: 0.85em; color: #444; font-weight: 600;">Max. Hist. Return ($)</div>
-                        <div>{color_val(max_return, show_hkd=True)}</div>
-                    </div>
-                    <div>
-                        <div style="font-size: 0.85em; color: #444; font-weight: 600;">Total Cum. Return (%)</div>
-                        <div>{color_val(total_cum_return, is_pct=True)}</div>
-                    </div>
-                </div>
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-                    <div>
-                        <div style="font-size: 0.85em; color: #444; font-weight: 600;">Benchmark {config.METRICS_BENCHMARK}</div>
-                        <div style="color: #222;">{benchmark_total_return:.2%}</div>
-                    </div>
-                    <div>
-                        <div style="font-size: 0.85em; color: #444; font-weight: 600;">Alpha (ann.)</div>
-                        <div>{color_val(alpha, is_pct=True)}</div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- RISK METRICS -->
-            <div style="padding: 20px; background-color: #ffffff;">
-                <h3 style="margin-top: 0; color: #333; border-bottom: 2px solid #dc3545; padding-bottom: 5px; display: inline-block;">RISK METRICS</h3>
-                <div style="margin-bottom: 15px;">
-                    <div style="font-size: 0.9em; color: #444; font-weight: 600;">Annualized Volatility</div>
-                    <div style="font-size: 1.2em; font-weight: bold; color: #000;">{volatility:.2%}</div>
-                </div>
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 10px;">
-                    <div>
-                        <div style="font-size: 0.85em; color: #444; font-weight: 600;">Sharpe Ratio</div>
-                        <div style="font-weight: 500; color: #222;">{sharpe_ratio:.2f} <span style="font-size: 0.8em; color: #666;">| {benchmark_sharpe_ratio:.2f}</span></div>
-                    </div>
-                    <div>
-                        <div style="font-size: 0.85em; color: #444; font-weight: 600;">Sortino Ratio</div>
-                        <div style="font-weight: 500; color: #222;">{sortino_ratio:.2f} <span style="font-size: 0.8em; color: #666;">| {benchmark_sortino_ratio:.2f}</span></div>
-                    </div>
-                    <div>
-                        <div style="font-size: 0.85em; color: #444; font-weight: 600;">Beta (vs {config.METRICS_BENCHMARK})</div>
-                        <div style="color: #222;">{portfolio_beta:.2f}</div>
-                    </div>
-                    <div>
-                        <div style="font-size: 0.85em; color: #444; font-weight: 600;">Tracking Error</div>
-                        <div style="color: #222;">{tracking_error:.2%}</div>
-                    </div>
-                    <div>
-                        <div style="font-size: 0.85em; color: #444; font-weight: 600;">Max Drawdown</div>
-                        <div style="color: red;">{max_drawdown:.2%}</div>
-                    </div>
-                    <div>
-                        <div style="font-size: 0.85em; color: #444; font-weight: 600;">VaR (95% 1-day)</div>
-                        <div style="color: red;">{var_95_percent_return:.2%}</div>
-                    </div>
-                    <div>
-                        <div style="font-size: 0.85em; color: #444; font-weight: 600;">Down Capture Ratio</div>
-                        <div style="color: #222;">{down_capture:.2f}</div>
-                    </div>
-                    <div>
-                        <div style="font-size: 0.85em; color: #444; font-weight: 600;">Up Capture Ratio</div>
-                        <div style="color: #222;">{up_capture:.2f}</div>
-                    </div>
-                </div>
-
-            </div>
-        </div>
-
-        <!-- COMPOSITION -->
-        <div style="padding: 20px; border-bottom: 1px solid #e0e0e0; background-color: #ffffff;">
-            <h3 style="margin-top: 0; color: #333; border-bottom: 2px solid #28a745; padding-bottom: 5px; display: inline-block;">PORTFOLIO COMPOSITION</h3>
-            <div style="margin-bottom: 10px;">
-                <span style="font-weight: bold; color: #444;">Asset Allocation:</span> 
-                <span style="color: #222;">{asset_alloc_str}</span>
-            </div>
-            <div style="margin-bottom: 10px;">
-                <span style="font-weight: bold; color: #444;">Top 3 Sectors:</span> 
-                <span style="color: #222;">{sector_alloc_str}</span>
-            </div>
-            <div style="display: flex; gap: 30px;">
-                <div>
-                    <span style="font-weight: bold; color: #444;">Top 10 Concentration:</span> 
-                    <span style="color: #222;">{top_10_pct:.1%}</span>
-                </div>
-                <div>
-                    <span style="font-weight: bold; color: #444;">Total Holdings:</span> 
-                    <span style="color: #222;">{num_holdings}</span>
-                </div>
-            </div>
-        </div>
+                portfolio_beta = benchmark_total_return = tracking_error = down_capture = up_capture = benchmark_sharpe_ratio = benchmark_sortino_ratio = np.nan
+                
+        except Exception as e:
+            print(f"Error calculating Benchmark/Beta: {e}")
+            portfolio_beta = benchmark_total_return = tracking_error = down_capture = up_capture = benchmark_sharpe_ratio = benchmark_sortino_ratio = np.nan
         
-        <!-- METRIC DEFINITIONS FOOTER -->
-        <div style="padding: 15px 20px; background-color: #f9f9f9; color: #555; font-size: 0.8em; border-top: 1px solid #eee;">
-            <div style="font-weight: bold; margin-bottom: 5px; color: #333;">Metric Definitions:</div>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px;">
-                <div><strong>Sharpe:</strong> Excess return per unit of total risk (volatility).</div>
-                <div><strong>Sortino:</strong> Excess return per unit of downside risk.</div>
-                <div><strong>Beta:</strong> Portfolio volatility relative to the market ({config.METRICS_BENCHMARK}).</div>
-                <div><strong>Alpha:</strong> Excess return over expected return given risk.</div>
-                <div><strong>VaR (95%):</strong> Max expected loss in 1 day with 95% confidence.</div>
-                <div><strong>Tracking Error:</strong> Deviation of portfolio returns from benchmark.</div>
-            </div>
-        </div>
-    </div>
-    """
+        # Risk Ratios
+        excess_returns = df['Daily_Return'] - df['Risk_Free_Rate_Daily']
+        sharpe_ratio = (excess_returns.mean() * 252) / (df['Daily_Return'].std() * np.sqrt(252)) if len(df) > 1 and df['Daily_Return'].std() > 0 else np.nan
+        
+        downside_returns = df.loc[df['Daily_Return'] < df["Risk_Free_Rate_Daily"], 'Daily_Return']
+        sortino_ratio = (excess_returns.mean() * 252) / (downside_returns.std() * np.sqrt(252)) if len(downside_returns) > 1 and downside_returns.std() > 0 else np.nan
 
-    return summary_sheet
+        # Alpha (Annualized)
+        if not np.isnan(portfolio_beta):
+            port_ret_ann = (1 + ((1 + df['Daily_Return']).prod() - 1)) ** (252/len(df)) - 1
+            bench_ret_ann = (1 + benchmark_total_return) ** (252/len(df)) - 1
+            rf_ann = (1 + ((1 + df['Risk_Free_Rate_Daily']).prod() - 1)) ** (252/len(df)) - 1
+            alpha = port_ret_ann - (rf_ann + portfolio_beta * (bench_ret_ann - rf_ann))
+        else:
+            alpha = np.nan
+        
+        volatility = df['Daily_Return'].std() * np.sqrt(252) if len(df) > 1 else 0
+        var_95_percent = np.percentile(df['Daily_Return'], 5) if len(df) > 10 else np.nan
+        var_95_dollar = np.percentile(df['Daily_PnL'], 5) if len(df) > 10 else np.nan
+        
+        total_return = (df['Total_Equity'].iloc[-1] / df['Invested_Capital'].iloc[-1]) - 1 if len(df) > 0 else 0
+        drawdowns = (df['Total_Equity'] / df['Total_Equity'].cummax()) - 1
+        max_drawdown = drawdowns.min() if len(df) > 0 else 0
+        
+        # Advanced Stats
+        daily_ret = df['Daily_Return'].dropna()
+        skewness = skew(daily_ret, bias=False) if len(daily_ret) > 3 else np.nan
+        kurtosis_val = sp_kurtosis(daily_ret, bias=False) if len(daily_ret) > 3 else np.nan
+        
+        tail_returns = daily_ret[daily_ret <= np.percentile(daily_ret, 5)] if len(daily_ret) > 10 else []
+        cvar_95 = tail_returns.mean() if len(tail_returns) > 0 else np.nan
+        
+        ulcer_index = np.sqrt(((((1 + daily_ret).cumprod() / (1 + daily_ret).cumprod().cummax()) - 1) * 100)**2).mean() if len(df) > 1 else np.nan
+        
+        # Recovery Analysis
+        ttrs = []
+        is_dd = df['Total_Equity'] < df['Total_Equity'].cummax()
+        dd_start = None
+        for i, val in enumerate(is_dd):
+            if val:
+                if dd_start is None: dd_start = i
+            elif dd_start is not None:
+                ttrs.append(i - dd_start)
+                dd_start = None
+        if dd_start is not None: ttrs.append(len(is_dd) - dd_start)
+        avg_ttr = np.mean(ttrs) if ttrs else 0
+        max_ttr = max(ttrs) if ttrs else 0
+
+        self.metrics = {
+            'first_date': df.index[0],
+            'sharpe_ratio': sharpe_ratio,
+            'benchmark_sharpe_ratio': benchmark_sharpe_ratio,
+            'sortino_ratio': sortino_ratio,
+            'benchmark_sortino_ratio': benchmark_sortino_ratio,
+            'portfolio_beta': portfolio_beta,
+            'alpha': alpha,
+            'volatility': volatility,
+            'var_95_percent_return': var_95_percent,
+            'var_95_dollar': var_95_dollar,
+            'total_return': total_return,
+            'max_return': max(df['PnL']) if len(df) > 0 else 0,
+            'total_cum_return': df['Cumulative_Return'].iloc[-1] if len(df) > 0 else 0,
+            'max_drawdown': max_drawdown,
+            'benchmark_return': benchmark_total_return,
+            'tracking_error': tracking_error,
+            'down_capture': down_capture,
+            'up_capture': up_capture,
+            'skewness': skewness,
+            'kurtosis': kurtosis_val,
+            'cvar_95': cvar_95,
+            'ulcer_index': ulcer_index,
+            'avg_ttr': avg_ttr,
+            'max_ttr': max_ttr,
+        }
+        return self.metrics
+
+    def get_pnl_plot(self, show=False):
+        df = self.history_df
+        fig = go.Figure()
+
+        fig.add_trace(go.Scatter(x=df.index, y=df['PnL'], mode='lines', name='Total PnL', line=dict(color='black', width=1), hovertemplate="<b>%{x}</b><br>PnL: US$ %{y:,.2f}<extra></extra>"))
+        fig.add_trace(go.Scatter(x=df.index, y=df['PnL'].where(df['PnL'] >= 0, 0), mode='none', fill='tozeroy', fillcolor='rgba(0, 255, 0, 0.3)', name='Profit', hoverinfo='skip'))
+        fig.add_trace(go.Scatter(x=df.index, y=df['PnL'].where(df['PnL'] < 0, 0), mode='none', fill='tozeroy', fillcolor='rgba(255, 0, 0, 0.3)', name='Loss', hoverinfo='skip'))
+
+        fig.update_layout(title='Interactive Total Profit/Loss Over Time', xaxis_title='Date', yaxis_title='PnL (USD)', hovermode='x unified', height=500)
+        fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
+        if show: fig.show()
+        return fig
+
+    def get_wealth_plot(self, show=False):
+        df = self.history_df
+        fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.08, row_heights=[0.6, 0.4],
+                            subplot_titles=("Portfolio Value & Invested Capital", "Net Profit / Loss"))
+        
+        # Wealth
+        fig.add_trace(go.Scatter(x=df.index, y=df['Invested_Capital'], mode='lines', name='Invested Capital', line=dict(color='#94a3b8', width=1.5, dash='dot'), hovertemplate="Invested: US$ %{y:,.2f}<extra></extra>"), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=df['Total_Equity'], mode='lines', name='Total Equity', line=dict(color=COLOR_PORT_MAIN, width=2.5), fill='tonexty', fillcolor='rgba(37, 99, 235, 0.08)', hovertemplate="Equity: US$ %{y:,.2f}<extra></extra>"), row=1, col=1)
+ 
+        # PnL
+        fig.add_trace(go.Scatter(x=df.index, y=df['PnL'], mode='lines', name='Net PnL', line=dict(color=COLOR_ACCENT, width=2), fill='tozeroy', fillcolor='rgba(139, 92, 246, 0.08)', hovertemplate="PnL: US$ %{y:,.2f}<extra></extra>"), row=2, col=1)
+        fig.add_hline(y=0, line_dash="solid", line_color="#cbd5e1", row=2, col=1)
+        
+        fig.update_layout(template="plotly_white", hovermode="x unified", height=700, showlegend=True,
+                          legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                          margin=dict(l=50, r=20, t=60, b=50), font=dict(family="Inter, sans-serif", size=12, color=COLOR_TEXT))
+        fig.update_xaxes(title_text='Date', row=2, col=1)
+        fig.update_yaxes(title_text='Equity (USD)', row=1, col=1)
+        fig.update_yaxes(title_text='PnL (USD)', row=2, col=1)
+        fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
+        if show: fig.show()
+        return fig
+
+    def get_returns_plot(self, show=False):
+        df = self.history_df
+        benchmark_symbols = config.PLOT_BENCHMARK
+
+        fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.08,
+                            subplot_titles=("Historical Daily Returns", "Cumulative Return Comparison"), row_heights=[0.5, 0.5])
+
+        # Daily Returns
+        daily_colors = [COLOR_POSITIVE if val >= 0 else COLOR_NEGATIVE for val in df['Daily_Return']]
+        fig.add_trace(go.Bar(x=df.index, y=df['Daily_Return'] * 100, name='Daily Return %', marker_color=daily_colors, opacity=0.8, hovertemplate="Daily: %{y:.2f}%<extra></extra>"), row=1, col=1)
+
+        # Cumulative
+        fig.add_trace(go.Scatter(x=df.index, y=df['Cumulative_Return'] * 100, mode='lines', name='Portfolio', line=dict(color=COLOR_PORT_MAIN, width=3), fill='tozeroy', fillcolor='rgba(37, 99, 235, 0.05)', hovertemplate="Portfolio: %{y:.2f}%<extra></extra>"), row=2, col=1)
+
+        # Benchmarks
+        start_date, end_date = df.index.min(), df.index.max()
+        bench_data = yf.download(benchmark_symbols, start=start_date, end=end_date + pd.Timedelta(days=1), progress=False, auto_adjust=True, group_by="column")["Close"]
+        if isinstance(bench_data, pd.Series): bench_data = bench_data.to_frame(name=benchmark_symbols[0])
+        
+        bench_palette = [COLOR_BENCHMARK, COLOR_ACCENT, '#f59e0b', '#ec4899']
+        for i, ticker in enumerate(benchmark_symbols):
+            if ticker in bench_data.columns:
+                series = bench_data[ticker].dropna()
+                cum_return = (series / series.iloc[0]) - 1
+                fig.add_trace(go.Scatter(x=cum_return.index, y=cum_return * 100, mode='lines', name=ticker, line=dict(color=bench_palette[i % len(bench_palette)], width=1.5), opacity=0.8, hovertemplate="%{n}: %{y:.2f}%<extra></extra>".replace('%{n}', ticker)), row=2, col=1)
+
+        fig.update_layout(template="plotly_white", hovermode="x unified", height=650, showlegend=True,
+                          legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                          font=dict(family="Inter, sans-serif", size=12, color=COLOR_TEXT))
+        fig.update_xaxes(title_text='Date', row=2, col=1)
+        fig.update_yaxes(title_text='Daily Return (%)', row=1, col=1)
+        fig.update_yaxes(title_text='Cumulative Return (%)', row=2, col=1)
+        fig.add_hline(y=0, line_dash="solid", line_color="#cbd5e1", row=1, col=1)
+        fig.add_hline(y=0, line_dash="solid", line_color="#cbd5e1", row=2, col=1)
+        fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
+        if show: fig.show()
+        return fig
+
+    def get_drawdown_plot(self, show=False):
+        df = self.history_df
+        cum_returns = (1 + df['Daily_Return']).cumprod()
+        running_max = cum_returns.cummax()
+        drawdown_pct = (cum_returns / running_max) - 1
+
+        fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.1,
+                            subplot_titles=("Cumulative Return & Running Peak", "Portfolio Drawdown (Underwater)"), row_heights=[0.6, 0.4])
+
+        fig.add_trace(go.Scatter(x=df.index, y=(running_max - 1) * 100, mode='lines', name='Peak Return', line=dict(color='#94a3b8', width=1, dash='dot'), hovertemplate="Peak: %{y:.2f}%<extra></extra>"), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=(cum_returns - 1) * 100, mode='lines', name='Portfolio', line=dict(color=COLOR_PORT_MAIN, width=2.5), fill='tonexty', fillcolor='rgba(239, 68, 68, 0.05)', hovertemplate="Return: %{y:.2f}%<extra></extra>"), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=drawdown_pct * 100, mode='lines', name='Drawdown %', line=dict(color=COLOR_NEGATIVE, width=1.5), fill='tozeroy', fillcolor='rgba(239, 68, 68, 0.15)', hovertemplate="Drawdown: %{y:.2f}%<extra></extra>"), row=2, col=1)
+
+        fig.update_layout(template="plotly_white", height=600, showlegend=True, hovermode="x unified",
+                          legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                          margin=dict(l=50, r=20, t=60, b=50), font=dict(family="Inter, sans-serif", size=12, color=COLOR_TEXT))
+        fig.update_xaxes(title_text='Date', row=2, col=1)
+        fig.update_yaxes(title_text='Return (%)', row=1, col=1)
+        fig.update_yaxes(title_text='Drawdown (%)', row=2, col=1)
+        fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
+        if show: fig.show()
+        return fig
+
+    def get_allocation(self, show=False):
+        """Calculates asset allocation across symbols, categories, and sectors."""
+        trades_df = self.trades_df
+        portfolio_tracker = self.portfolio_tracker
+        history_df = self.history_df
+        
+        last_holdings = {}
+        for sym in portfolio_tracker.symbols:
+            buys = trades_df[(trades_df['SYMBOL'] == sym) & (trades_df['BUY/SELL'] == 'BUY')]['QTY'].sum()
+            sells = trades_df[(trades_df['SYMBOL'] == sym) & (trades_df['BUY/SELL'] == 'SELL')]['QTY'].sum()
+            last_holdings[sym] = buys - sells
+
+        current_holdings = {k: v for k, v in last_holdings.items() if v > 0}
+        current_values = {}
+        for sym, qty in current_holdings.items():
+            if sym in portfolio_tracker.market_data and not portfolio_tracker.market_data[sym].empty:
+                current_values[sym] = qty * portfolio_tracker.market_data[sym].iloc[-1]['Close']
+
+        if history_df['Cash'].iloc[-1] > 0:
+            current_values['Liquid Cash'] = history_df['Cash'].iloc[-1]
+
+        asset_categories, asset_sectors = {}, {}
+        for sym in current_values:
+            if sym == 'Liquid Cash':
+                asset_categories[sym], asset_sectors[sym] = 'Cash & Equivalents', 'Cash'
+                continue
+            if sym in mappings.TICKER_OVERRIDES:
+                cat = mappings.TICKER_OVERRIDES[sym]
+                asset_categories[sym], asset_sectors[sym] = cat, cat
+                continue
+
+            info = portfolio_tracker.asset_info.get(sym, {})
+            q_type, sector, category_yf, name = info.get('quoteType'), info.get('sector', 'Unknown'), info.get('category'), info.get('longName', '').lower()
+            
+            if q_type == 'ETF':
+                cat = mappings.ETF_CATEGORY_MAP.get(category_yf)
+                if not cat:
+                    if any(x in name for x in ['treasury', 'gov', 'bills', 'sovereign']): cat = 'Treasury Bonds'
+                    elif any(x in name for x in ['corporate', 'credit', 'high yield']): cat = 'Corporate Bonds'
+                    elif any(x in name for x in ['bond', 'fixed income']): cat = 'Other Fixed Income'
+                    elif any(x in name for x in ['gold', 'silver', 'commodity', 'metal', 'uranium', 'copper']): cat = 'Commodities'
+                    else: cat = 'Equity ETF (Other)'
+                asset_categories[sym], asset_sectors[sym] = cat, (sector if sector != 'Unknown' else cat)
+            elif q_type == 'EQUITY':
+                cat = mappings.STOCK_SECTOR_MAP.get(sector, f"{sector} Stocks" if sector != 'Unknown' else 'Individual Stocks')
+                asset_categories[sym], asset_sectors[sym] = cat, (sector if sector != 'Unknown' else cat)
+            else:
+                asset_categories[sym], asset_sectors[sym] = 'Other', (sector if sector != 'Unknown' else 'Other')
+
+        # Formatting
+        total_val = sum(current_values.values())
+        data_rows = []
+        for sym, val in current_values.items():
+            data_rows.append({'Symbol': sym, 'Category': asset_categories.get(sym, 'Other'), 'Sector': asset_sectors.get(sym, 'Other'),
+                              'Value': val, 'Allocation (%)': (val / total_val) * 100})
+        df_alloc = pd.DataFrame(data_rows).sort_values(by='Value', ascending=False).reset_index(drop=True)
+
+        # Visualization
+        df_cat = df_alloc.groupby('Category')['Value'].sum().reset_index()
+        fig = make_subplots(rows=1, cols=2, specs=[[{'type':'domain'}, {'type':'domain'}]], subplot_titles=['Allocation by Symbol', 'Allocation by Asset Class'])
+        palette = ['#2563eb', '#10b981', '#8b5cf6', '#f59e0b', '#ec4899', '#06b6d4', '#84cc16', '#a855f7']
+
+        fig.add_trace(go.Pie(labels=df_alloc['Symbol'], values=df_alloc['Value'], hole=0.45, 
+                             marker=dict(colors=palette, line=dict(color='#ffffff', width=2)),
+                             hovertemplate="<b>%{label}</b><br>US$ %{value:,.2f}<br>%{percent}<extra></extra>"), 1, 1)
+        fig.add_trace(go.Pie(labels=df_cat['Category'], values=df_cat['Value'], hole=0.45, 
+                             marker=dict(colors=palette, line=dict(color='#ffffff', width=2)),
+                             hovertemplate="<b>%{label}</b><br>US$ %{value:,.2f}<br>%{percent}<extra></extra>"), 1, 2)
+        
+        fig.update_layout(template='plotly_white', height=500, margin=dict(t=80, b=120, l=20, r=20), showlegend=True,
+                          legend=dict(orientation="h", yanchor="top", y=-0.25, xanchor="center", x=0.5),
+                          font=dict(family="Inter, sans-serif", size=12, color=COLOR_TEXT),
+                          annotations=[dict(text='<b>By Symbol</b>', x=0.225, y=0.5, showarrow=False, font=dict(size=12), xref="paper", yref="paper"),
+                                       dict(text='<b>By Class</b>', x=0.775, y=0.5, showarrow=False, font=dict(size=12), xref="paper", yref="paper")])
+        if show: fig.show()
+
+        # Cache results for summary sheet
+        self.allocation_data = {
+            'fig': fig,
+            'df_alloc': df_alloc,
+            'category_values': df_alloc.groupby('Category')['Value'].sum().to_dict(),
+            'sector_values': df_alloc.groupby('Sector')['Value'].sum().to_dict(),
+            'current_values': current_values,
+            'current_holdings': current_holdings
+        }
+        return self.allocation_data
+
+    def get_quant_plots(self, show=False, windows=[21, 63]):
+        df_hist = self.history_df
+        start_date = df_hist.index.min().strftime('%Y-%m-%d')
+        end_date = (df_hist.index.max() + pd.Timedelta(days=1)).strftime('%Y-%m-%d')
+        bench_ticker = config.METRICS_BENCHMARK
+        
+        bench_data = yf.download(bench_ticker, start=start_date, end=end_date, progress=False, auto_adjust=True)
+        bench_returns = bench_data['Close'].pct_change().fillna(0)
+        if isinstance(bench_returns, pd.DataFrame): bench_returns = bench_returns.iloc[:, 0]
+            
+        df = pd.DataFrame({'Port_Return': df_hist['Daily_Return'], 'Bench_Return': bench_returns}).dropna()
+        fig = make_subplots(rows=4, cols=1, shared_xaxes=True, vertical_spacing=0.06,
+                            subplot_titles=("Rolling Volatility (Annualized)", f"Rolling Beta (vs {bench_ticker})", 
+                                            "Rolling Alpha (Annualized)", "Rolling Sharpe Ratio"))
+        
+        port_colors, bench_colors = [COLOR_PORT_MAIN, COLOR_ACCENT], [COLOR_BENCHMARK, '#f59e0b']
+        for i, w in enumerate(windows):
+            p_color, b_color = port_colors[i % len(port_colors)], bench_colors[i % len(bench_colors)]
+
+            rolling_vol = df['Port_Return'].rolling(window=w).std() * np.sqrt(252)
+            bench_vol = df['Bench_Return'].rolling(window=w).std() * np.sqrt(252)
+            rolling_beta = df['Port_Return'].rolling(window=w).cov(df['Bench_Return']) / df['Bench_Return'].rolling(window=w).var()
+            rolling_alpha = (df['Port_Return'].rolling(window=w).mean() - (rolling_beta * df['Bench_Return'].rolling(window=w).mean())) * 252 
+            rolling_sharpe = (df['Port_Return'].rolling(window=w).mean() / df['Port_Return'].rolling(window=w).std()) * np.sqrt(252)
+            bench_sharpe = (df['Bench_Return'].rolling(window=w).mean() / df['Bench_Return'].rolling(window=w).std()) * np.sqrt(252)
+            
+            fig.add_trace(go.Scatter(x=df.index, y=rolling_vol*100, mode='lines', name=f'Port Vol ({w}d)', line=dict(color=p_color, width=2), hovertemplate="Port Vol: %{y:.2f}%<extra></extra>"), row=1, col=1)
+            fig.add_trace(go.Scatter(x=df.index, y=bench_vol*100, mode='lines', name=f'Bench Vol ({w}d)', line=dict(color=b_color, dash='dot', width=1.5), hovertemplate="Bench Vol: %{y:.2f}%<extra></extra>"), row=1, col=1)
+            fig.add_trace(go.Scatter(x=df.index, y=rolling_beta, mode='lines', name=f'Beta ({w}d)', line=dict(color=p_color, width=2), hovertemplate="Beta: %{y:.2f}<extra></extra>"), row=2, col=1)
+            fig.add_trace(go.Scatter(x=df.index, y=rolling_alpha*100, mode='lines', name=f'Alpha ({w}d)', line=dict(color=p_color, width=2), hovertemplate="Alpha: %{y:.2f}%<extra></extra>"), row=3, col=1)
+            fig.add_trace(go.Scatter(x=df.index, y=rolling_sharpe, mode='lines', name=f'Port Sharpe ({w}d)', line=dict(color=p_color, width=2), hovertemplate="Port Sharpe: %{y:.2f}<extra></extra>"), row=4, col=1)
+            fig.add_trace(go.Scatter(x=df.index, y=bench_sharpe, mode='lines', name=f'Bench Sharpe ({w}d)', line=dict(color=b_color, dash='dot', width=1.5), hovertemplate="Bench Sharpe: %{y:.2f}<extra></extra>"), row=4, col=1)
+        
+        fig.add_hline(y=1, line_dash="solid", line_color="#cbd5e1", row=2, col=1)
+        fig.add_hline(y=0, line_dash="solid", line_color="#cbd5e1", row=3, col=1)
+        fig.add_hline(y=1, line_dash="solid", line_color="#cbd5e1", row=4, col=1)
+        
+        fig.update_layout(height=1000, template="plotly_white", showlegend=False, hovermode="x unified",
+                          margin=dict(t=60, b=50, l=50, r=20), font=dict(family="Inter, sans-serif", size=11, color=COLOR_TEXT))
+        fig.update_xaxes(title_text='Date', row=4, col=1)
+        fig.update_yaxes(title_text="Volatility (%)", row=1, col=1)
+        fig.update_yaxes(title_text="Beta", row=2, col=1)
+        fig.update_yaxes(title_text="Alpha (%)", row=3, col=1)
+        fig.update_yaxes(title_text="Sharpe Ratio", row=4, col=1)
+        fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
+        if show: fig.show()
+        return fig
+
+    def get_distribution_plot(self, show=False):
+        """Creates a histogram of daily returns overlaid with a fitted normal distribution."""
+        daily_ret = self.history_df['Daily_Return'].dropna() * 100
+        mean_ret, std_ret = daily_ret.mean(), daily_ret.std()
+
+        fig = go.Figure()
+        fig.add_trace(go.Histogram(x=daily_ret, nbinsx=80, name='Daily Returns', marker_color='rgba(37, 99, 235, 0.6)', histnorm='probability density', hovertemplate="Range: %{x:.2f}%<br>Density: %{y:.4f}<extra></extra>"))
+        
+        x_range = np.linspace(daily_ret.min(), daily_ret.max(), 300)
+        fig.add_trace(go.Scatter(x=x_range, y=(1/(std_ret*np.sqrt(2*np.pi)))*np.exp(-0.5*((x_range-mean_ret)/std_ret)**2), mode='lines', name='Normal Fit', line=dict(color='#D32F2F', width=2, dash='dash'), hovertemplate="Normal Fit: %{y:.4f}<extra></extra>"))
+
+        var_95 = np.percentile(daily_ret, 5)
+        fig.add_vline(x=var_95, line_dash="dash", line_color="#EF6C00", annotation_text=f"VaR 95%: {var_95:.2f}%", annotation_position="top right")
+        
+        tail = daily_ret[daily_ret <= var_95]
+        if len(tail) > 0:
+            fig.add_vline(x=tail.mean(), line_dash="dot", line_color="#B71C1C", annotation_text=f"CVaR 95%: {tail.mean():.2f}%", annotation_position="top left")
+
+        fig.update_layout(template='plotly_white', title='Daily Return Distribution vs. Normal Fit', xaxis_title='Daily Return (%)', yaxis_title='Density', height=450, hovermode='x unified')
+        if show: fig.show()
+        return fig
+
+    def get_correlation_heatmap(self, show=False):
+        """Creates an annotated heatmap of pairwise correlations for currently held assets."""
+        if not self.allocation_data: self.get_allocation()
+        symbols = list(self.allocation_data['current_holdings'].keys())
+
+        if len(symbols) < 2: return go.Figure().add_annotation(text="Need at least 2 holdings for correlation.", showarrow=False)
+
+        returns_dict = {}
+        for sym in symbols:
+            if sym in self.portfolio_tracker.market_data and not self.portfolio_tracker.market_data[sym].empty:
+                close = self.portfolio_tracker.market_data[sym]['Close'].copy()
+                if close.index.tz: close.index = close.index.tz_localize(None)
+                returns_dict[sym] = close.pct_change().fillna(0)
+
+        if len(returns_dict) < 2: return go.Figure().add_annotation(text="Insufficient price data for correlation.", showarrow=False)
+        corr_matrix = pd.DataFrame(returns_dict).dropna().corr()
+
+        fig = go.Figure(data=go.Heatmap(z=corr_matrix.values, x=corr_matrix.columns, y=corr_matrix.index, 
+                                       text=corr_matrix.round(2).values, texttemplate='%{text}',
+                                       colorscale=[[0, '#2563eb'], [0.5, '#ffffff'], [1, '#dc2626']], zmin=-1, zmax=1,
+                                       hovertemplate="Asset 1: %{x}<br>Asset 2: %{y}<br>Correlation: %{z:.2f}<extra></extra>"))
+        fig.update_layout(template='plotly_white', title='Pairwise Asset Correlation Matrix', xaxis_title='Asset', yaxis_title='Asset', height=max(450, 50 + len(symbols)*35), yaxis=dict(autorange='reversed'))
+        if show: fig.show()
+        return fig
+
+    def get_beta_exposure_plot(self, show=False):
+        if not self.allocation_data: self.get_allocation()
+        holdings, values = self.allocation_data['current_holdings'], self.allocation_data['current_values']
+        benchmark_symbol = config.METRICS_BENCHMARK
+        symbols = list(holdings.keys())
+
+        if not symbols: return go.Figure(), pd.DataFrame()
+
+        try:
+            bench_data = self.portfolio_tracker.market_data.get(benchmark_symbol) or yf.Ticker(benchmark_symbol).history(period="1y")
+            bench_ret = bench_data['Close'].pct_change().dropna()
+            if bench_ret.index.tz: bench_ret.index = bench_ret.index.tz_localize(None)
+        except: return go.Figure(), pd.DataFrame()
+
+        returns_list, valid_syms = [], []
+        for sym in symbols:
+            if sym in self.portfolio_tracker.market_data and not self.portfolio_tracker.market_data[sym].empty:
+                ret = self.portfolio_tracker.market_data[sym]['Close'].pct_change().dropna()
+                if ret.index.tz: ret.index = ret.index.tz_localize(None)
+                returns_list.append(ret); valid_syms.append(sym)
+        
+        if not returns_list: return go.Figure(), pd.DataFrame()
+        all_ret = pd.concat(returns_list + [bench_ret], axis=1, keys=valid_syms + ['BENCHMARK']).dropna()
+        if len(all_ret) < 20: betas = {s: 1.0 for s in valid_syms}
+        else:
+            matrix = all_ret.cov()
+            betas = (matrix.loc[valid_syms, 'BENCHMARK'] / matrix.loc['BENCHMARK', 'BENCHMARK']).to_dict()
+
+        total_val = sum(values.values())
+        rows = [{'Symbol': s, 'Beta': round(betas.get(s, 1.0), 2), 'Nominal ($)': values.get(s, 0),
+                 'Nominal (%)': round((values.get(s, 0)/total_val)*100, 1),
+                 'Beta-Adj ($)': values.get(s, 0)*betas.get(s, 1.0),
+                 'Beta-Adj (%)': round((values.get(s, 0)*betas.get(s, 1.0)/total_val)*100, 1)} for s in valid_syms]
+        df_beta = pd.DataFrame(rows).sort_values('Nominal ($)', ascending=True)
+
+        fig = go.Figure()
+        fig.add_trace(go.Bar(y=df_beta['Symbol'], x=df_beta['Nominal (%)'], name='Nominal %', 
+                             orientation='h', marker_color='rgba(37, 99, 235, 0.7)',
+                             customdata=df_beta['Beta'],
+                             hovertemplate="<b>%{y}</b><br>Nominal: %{x}%<br>Beta: %{customdata}<extra></extra>"))
+        fig.add_trace(go.Bar(y=df_beta['Symbol'], x=df_beta['Beta-Adj (%)'], name='Beta-Adj %', 
+                             orientation='h', marker_color='rgba(220, 38, 38, 0.7)',
+                             customdata=df_beta['Beta'],
+                             hovertemplate="<b>%{y}</b><br>Beta-Adj: %{x}%<br>Beta: %{customdata}<extra></extra>"))
+        fig.update_layout(template='plotly_white', title=f'Nominal vs. Beta Exposure ({benchmark_symbol})', xaxis_title='Exposure (%)', yaxis_title='Symbol', barmode='group', height=max(400, 60 + len(df_beta)*40))
+        if show: fig.show()
+        return fig, df_beta
+
+    def get_factor_analysis_plot(self, show=False):
+        df = self.history_df
+        ff_df = fetch_fama_french_factors(df.index.min().strftime('%Y-%m-%d'), df.index.max().strftime('%Y-%m-%d'))
+        if ff_df is None or ff_df.empty: return go.Figure().add_annotation(text="No FF data found for this period.", showarrow=False), {}
+
+        # Align portfolio returns with factors
+        aligned = pd.DataFrame({
+            'Portfolio': df['Daily_Return'],
+            'Mkt-RF': ff_df['Mkt-RF'],
+            'SMB': ff_df['SMB'],
+            'HML': ff_df['HML'],
+            'RF': ff_df['RF']
+        }).dropna()
+        
+        if len(aligned) < 30: return go.Figure().add_annotation(text="Insufficient data for factor analysis.", showarrow=False), {}
+
+        y = (aligned['Portfolio'] - aligned['RF']).values
+        X = np.column_stack([np.ones(len(aligned)), aligned[['Mkt-RF', 'SMB', 'HML']].values])
+
+        # OLS
+        betas, _, _, _ = np.linalg.lstsq(X, y, rcond=None)
+        y_pred = X @ betas
+        residuals = y - y_pred
+        r_squared = 1 - (np.sum(residuals**2) / np.sum((y - y.mean())**2))
+        
+        # Significance
+        mse = np.sum(residuals**2) / (len(y) - X.shape[1])
+        vcv = mse * np.linalg.inv(X.T @ X)
+        se = np.sqrt(np.diagonal(vcv))
+        t_stats = betas / se
+        p_values = [2 * (1 - stats.t.cdf(np.abs(t), df=len(y)-X.shape[1])) for t in t_stats]
+
+        def get_stars(p):
+            if p < 0.01: return "***"
+            if p < 0.05: return "**"
+            if p < 0.1: return "*"
+            return ""
+
+        results = {
+            'alpha_annual': (1 + betas[0])**252 - 1, 'alpha_p_value': p_values[0],
+            'mkt_beta': betas[1], 'mkt_p_value': p_values[1],
+            'smb_beta': betas[2], 'smb_p_value': p_values[2],
+            'hml_beta': betas[3], 'hml_p_value': p_values[3],
+            'r_squared': r_squared, 'n_obs': len(y)
+        }
+
+        fig = make_subplots(
+            rows=1, cols=2, column_widths=[0.6, 0.4],
+            specs=[[{"type": "bar"}, {"type": "table"}]],
+            subplot_titles=["Factor Exposure (Betas)", "Regression Summary"]
+        )
+
+        factors = ['Market (Mkt-RF)', 'Small Cap (SMB)', 'Value (HML)']
+        beta_vals = betas[1:]
+        stars = [get_stars(p) for p in p_values[1:]]
+        
+        fig.add_trace(go.Bar(
+            x=factors, y=beta_vals, text=[f"{b:.3f}{s}" for b, s in zip(beta_vals, stars)],
+            textposition='outside', marker_color=[COLOR_PORT_MAIN if b >= 0 else COLOR_NEGATIVE for b in beta_vals],
+            hovertemplate="<b>%{x}</b><br>Beta: %{y:.3f}<extra></extra>"
+        ), row=1, col=1)
+
+        # Summary Table
+        metrics_list = [
+            ['Annualized Alpha', f"{results['alpha_annual']:.2%}{get_stars(p_values[0])}"],
+            ['Market Beta', f"{results['mkt_beta']:.3f}{get_stars(p_values[1])}"],
+            ['Size Beta (SMB)', f"{results['smb_beta']:.3f}{get_stars(p_values[2])}"],
+            ['Value Beta (HML)', f"{results['hml_beta']:.3f}{get_stars(p_values[3])}"],
+            ['R-Squared', f"{r_squared:.4f}"],
+            ['Observations', f"{len(y)}"]
+        ]
+
+        fig.add_trace(go.Table(
+            header=dict(values=['Metric', 'Value'], fill_color=COLOR_GRID, align='left', font=dict(size=12, color=COLOR_TEXT, family="Inter")),
+            cells=dict(values=[[m[0] for m in metrics_list], [m[1] for m in metrics_list]], fill_color='white', align='left', font=dict(size=12, color=COLOR_TEXT, family="Inter"))
+        ), row=1, col=2)
+
+        fig.update_layout(template='plotly_white', height=400, margin=dict(t=50, b=30, l=20, r=20))
+        fig.update_xaxes(title_text="Factor", row=1, col=1)
+        fig.update_yaxes(title_text="Beta", row=1, col=1)
+        if show: fig.show()
+        return fig, results
+
+    def get_summary_data(self, factor_results=None, mc_results=None, trade_results=None):
+        """Aggregates all calculated metrics and allocation data into a structured dictionary."""
+        if self.metrics is None: self.calculate_metrics()
+        if self.allocation_data is None: self.get_allocation()
+        
+        m, a = self.metrics, self.allocation_data
+        df = self.history_df
+        
+        try:
+            hkd_rate = yf.Ticker("HKD=X").history(period="1d")['Close'].iloc[-1]
+        except: hkd_rate = 7.78
+
+        # Formatting helper
+        def fmt_v(v, is_pct=False, show_hkd=True):
+            color = "#10b981" if v >= 0 else "#ef4444"
+            bold_style = f'color: {color}; font-weight: 700;'
+            if is_pct:
+                return f'<span style="{bold_style}">{v:.2%}</span>'
+            
+            hkd_text = f" <span style='font-size: 0.8em; color: #6b7280; font-weight: 400;'>| HK$ {v * hkd_rate:,.2f}</span>" if show_hkd else ""
+            return f'<span style="{bold_style}">US$ {v:,.2f}{hkd_text}</span>'
+
+        # Composition strings
+        sorted_cats = sorted(a['category_values'].items(), key=lambda x: x[1], reverse=True)
+        asset_alloc_str = " | ".join([f"{k} {v/df['Total_Equity'].iloc[-1]:.1%}" for k, v in sorted_cats])
+        
+        top_sectors = sorted(a['sector_values'].items(), key=lambda x: x[1], reverse=True)[:3]
+        sector_alloc_str = " | ".join([f"{k} {v/df['Total_Equity'].iloc[-1]:.1%}" for k, v in top_sectors])
+        
+        # Concentration
+        sorted_holdings = sorted(a['current_values'].items(), key=lambda x: x[1], reverse=True)
+        top_10_val = sum([x[1] for x in sorted_holdings[:10]])
+        top_10_pct = top_10_val / df['Total_Equity'].iloc[-1]
+
+        # Trade Analytics (restoring lost realized pnl and expectancy)
+        expectancy = trade_results.get('expectancy', 0) if trade_results else 0
+        realized_pnl = trade_results.get('total_realized_pnl', 0) if trade_results else 0
+
+        summary = {
+            "first_date": m['first_date'].strftime('%Y-%m-%d'),
+            "current_date": datetime.now().strftime('%Y-%m-%d'),
+            "hkd_rate": f"{hkd_rate:.4f}",
+            "current_equity_usd": f"{df['Total_Equity'].iloc[-1]:,.2f}",
+            "current_equity_hkd": f"{df['Total_Equity'].iloc[-1] * hkd_rate:,.2f}",
+            "current_market_value_usd": f"{df['Market_Value'].iloc[-1]:,.2f}",
+            "current_cash_usd": f"{df['Cash'].iloc[-1]:,.2f}",
+            
+            # KPI Row
+            "total_return_abs_html": fmt_v(df['PnL'].iloc[-1]),
+            "total_return_pct_html": fmt_v(m['total_return'], is_pct=True),
+            "total_cum_return_html": fmt_v(m['total_cum_return'], is_pct=True),
+            "alpha_html": fmt_v(m['alpha'], is_pct=True),
+            "portfolio_beta": f"{m['portfolio_beta']:.2f}",
+            "max_drawdown": f"{m['max_drawdown']:.2%}",
+            "volatility": f"{m['volatility']:.2%}",
+            "benchmark_name": config.METRICS_BENCHMARK,
+            
+            # Stats & Ratios
+            "sharpe_ratio": f"{m['sharpe_ratio']:.2f}",
+            "benchmark_sharpe_ratio": f"{m['benchmark_sharpe_ratio']:.2f}",
+            "sortino_ratio": f"{m['sortino_ratio']:.2f}",
+            "benchmark_sortino_ratio": f"{m['benchmark_sortino_ratio']:.2f}",
+            "var_95_percent_return": f"{m['var_95_percent_return']:.2%}",
+            "max_return_html": fmt_v(m['max_return'], show_hkd=False),
+            "benchmark_total_return": f"{m['benchmark_return']:.2%}",
+            
+            # Risk Profile
+            "skewness": f"{m['skewness']:.3f}",
+            "kurtosis": f"{m['kurtosis']:.3f}",
+            "cvar_95": f"{m['cvar_95']:.2%}",
+            "ulcer_index": f"{m['ulcer_index']:.3f}",
+            "avg_ttr": f"{m['avg_ttr']:.1f} days",
+            "max_ttr": f"{m['max_ttr']:.0f} days",
+            "expected_max_dd_95": f"{mc_results.get('expected_max_dd_95', 0):.2%}" if mc_results else "N/A",
+            
+            # Trade Analysis
+            "total_trades": trade_results.get('total_trades', 0) if trade_results else 0,
+            "win_rate": f"{trade_results.get('hit_rate', 0):.1%}" if trade_results else "0.0%",
+            "profit_factor": f"{trade_results.get('profit_factor', 0):.2f}" if trade_results else "0.00",
+            "expectancy": f"US$ {expectancy:,.2f}" if trade_results else "US$ 0.00",
+            "total_realized_pnl_html": fmt_v(realized_pnl),
+            
+            # Fama-French
+            "ff_alpha": f"{factor_results.get('alpha_annual', 0):.2%}" if factor_results else "N/A",
+            "ff_alpha_pval": f"{factor_results.get('alpha_p_value', 1):.4f}" if factor_results else "N/A",
+            "ff_mkt_beta": f"{factor_results.get('mkt_beta', 0):.3f}" if factor_results else "N/A",
+            "ff_smb": f"{factor_results.get('smb_beta', 0):.3f}" if factor_results else "N/A",
+            "ff_hml": f"{factor_results.get('hml_beta', 0):.3f}" if factor_results else "N/A",
+            "ff_r_squared": f"{factor_results.get('r_squared', 0):.4f}" if factor_results else "N/A",
+            "mc_p_value": f"{mc_results.get('p_value', 1):.4f}" if mc_results else "N/A",
+            
+            # Composition
+            "asset_alloc_str": asset_alloc_str,
+            "sector_alloc_str": sector_alloc_str,
+            "num_holdings": len(a['current_holdings']),
+            "top_10_pct": f"{top_10_pct:.1%}"
+        }
+        return summary

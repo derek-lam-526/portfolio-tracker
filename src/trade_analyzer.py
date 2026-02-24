@@ -162,14 +162,16 @@ def get_trade_analysis_plots(completed_trades_df):
     fig.add_trace(
         go.Scatter(x=df['EXIT_DATE'], y=df['CUM_PNL'], mode='lines+markers', 
                    name='Cum. PnL', line=dict(color='#2563eb', width=2),
-                   marker=dict(size=4)),
+                   marker=dict(size=4),
+                   hovertemplate="<b>%{x}</b><br>Cum. PnL: US$ %{y:,.2f}<extra></extra>"),
         row=1, col=1
     )
 
     # 2. ROI Distribution
     fig.add_trace(
         go.Histogram(x=df['ROI'] * 100, nbinsx=30, name='Trade ROI %',
-                     marker_color='#10b981', opacity=0.7),
+                     marker_color='#10b981', opacity=0.7,
+                     hovertemplate="ROI Range: %{x}%<br>Count: %{y}<extra></extra>"),
         row=2, col=1
     )
     
@@ -179,7 +181,8 @@ def get_trade_analysis_plots(completed_trades_df):
     
     fig.add_trace(
         go.Bar(x=['Wins', 'Losses'], y=[num_wins, num_losses],
-               marker_color=['#10b981', '#ef4444'], name='Counts'),
+               marker_color=['#10b981', '#ef4444'], name='Counts',
+               hovertemplate="Outcome: %{x}<br>Total: %{y}<extra></extra>"),
         row=2, col=2
     )
 
@@ -190,8 +193,11 @@ def get_trade_analysis_plots(completed_trades_df):
         margin=dict(t=50, b=50, l=50, r=50)
     )
     
+    fig.update_xaxes(title_text="Exit Date", row=1, col=1)
     fig.update_xaxes(title_text="Trade ROI (%)", row=2, col=1)
-    fig.update_yaxes(title_text="Count", row=2, col=1)
+    fig.update_xaxes(title_text="Outcome", row=2, col=2)
     fig.update_yaxes(title_text="Net PnL (USD)", row=1, col=1)
+    fig.update_yaxes(title_text="Frequency", row=2, col=1)
+    fig.update_yaxes(title_text="Total Count", row=2, col=2)
 
     return fig
