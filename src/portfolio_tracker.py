@@ -14,7 +14,9 @@ from utils import TimingCollector
 class PortfolioTracker:
     def __init__(self, trades_df):
         self.trades = trades_df.copy()
-        self.symbols = self.trades[self.trades['SYMBOL'] != 'CASH']['SYMBOL'].unique().tolist()
+        # Symbols are now identified by any ticker that is actually bought or sold as an asset
+        asset_trades = self.trades[self.trades['BUY/SELL'].isin(['BUY', 'SELL'])]
+        self.symbols = asset_trades['SYMBOL'].unique().tolist()
         self.market_data = {}
         self.dividends = {}
         self.splits = {}
@@ -206,17 +208,12 @@ class PortfolioTracker:
                 div_df[sym] = net_div.reindex(full_idx, fill_value=0.0)
 
         # 4. Vectorized Holdings Calculation (Split-Adjusted)
-        # Logic Parity: H_t = (H_{t-1} + Q_t) * S_t
-        # Expanded: H_t = [Q_1*S_1*S_2...*S_t] + [Q_2*S_2*...*S_t] + ... + [Q_t*S_t]
-        # H_t = sum_{i=1 to t} (Q_i * product_{j=i to t} S_j)
-        # H_t = sum_{i=1 to t} (Q_i / (cumulative_product_{j=1 to i-1} S_j)) * (cumulative_product_{j=1 to t} S_j)
-        
         cum_split = split_df.cumprod()
-        # For the formula we need the product up to i-1. 
-        # shift(1) gives the product up to i-1, fill first value with 1.0.
         prev_cum_split = cum_split.shift(1, fill_value=1.0)
         
-        trade_qties = trades[trades['SYMBOL'] != 'CASH'].groupby(['DATE', 'SYMBOL'])['SIGNED_QTY'].sum().unstack().reindex(full_idx).fillna(0)
+        asset_mask = trades['BUY/SELL'].isin(['BUY', 'SELL'])
+        trade_qties = trades[asset_mask].groupby(['DATE', 'SYMBOL'])['SIGNED_QTY'].sum().unstack().reindex(full_idx).fillna(0)
+        
         for sym in self.symbols:
             if sym not in trade_qties.columns:
                 trade_qties[sym] = 0.0
@@ -230,7 +227,6 @@ class PortfolioTracker:
         daily_market_value = market_value_df.sum(axis=1)
 
         # 6. Cash Flow and Dividend History
-        # Iterative logic: dividends are calculated on holding AFTER trades and AFTER splits of the day
         daily_div_income = (holdings_df * div_df).sum(axis=1)
         
         # Record Dividend History
@@ -243,10 +239,11 @@ class PortfolioTracker:
                 })
 
         # Asset Trade Cash Flows
-        daily_asset_cash_flow = trades[trades['SYMBOL'] != 'CASH'].groupby('DATE')['NET_ASSET_CASH'].sum().reindex(full_idx).fillna(0)
+        daily_asset_cash_flow = trades[asset_mask].groupby('DATE')['NET_ASSET_CASH'].sum().reindex(full_idx).fillna(0)
         
         # Cash Trades (Deposits/Withdrawals)
-        cash_trades = trades[trades['SYMBOL'] == 'CASH'].copy()
+        cash_mask = trades['BUY/SELL'].isin(['DEPOSIT', 'WITHDRAW'])
+        cash_trades = trades[cash_mask].copy()
         cash_trades['FLOW'] = 0.0
         cash_trades['CAPITAL_CHANGE'] = 0.0
         

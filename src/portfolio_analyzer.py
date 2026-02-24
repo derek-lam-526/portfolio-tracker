@@ -560,17 +560,17 @@ def get_allocation(history_df, trades_df, portfolio_tracker, show=False):
             price = portfolio_tracker.market_data[sym].iloc[-1]['Close']
             current_values[sym] = qty * price
 
-    # Add Cash
+    # Add Liquid Cash
     current_cash = history_df['Cash'].iloc[-1]
     if current_cash > 0:
-        current_values['CASH'] = current_cash
+        current_values['__LIQUID_CASH__'] = current_cash
 
     # Categorize Assets
     asset_categories = {}
     asset_sectors = {}
 
     for sym in current_values.keys():
-        if sym == 'CASH':
+        if sym == '__LIQUID_CASH__':
             asset_categories[sym] = 'Cash & Equivalents'
             asset_sectors[sym] = 'Cash'
             continue
@@ -868,7 +868,7 @@ def get_distribution_plot(history_df, show=False):
 
 def get_correlation_heatmap(portfolio_tracker, current_holdings, show=False):
     """Creates an annotated heatmap of pairwise correlations for all currently held assets."""
-    symbols = [s for s in current_holdings.keys() if s != 'CASH']
+    symbols = list(current_holdings.keys())
 
     if len(symbols) < 2:
         # Need at least 2 assets for a correlation matrix
@@ -940,7 +940,7 @@ def get_beta_exposure_plot(portfolio_tracker, current_holdings, current_values, 
     """Calculates individual asset betas and shows a side-by-side comparison of
     nominal (dollar) allocation vs. beta-adjusted exposure."""
     benchmark_symbol = config.METRICS_BENCHMARK
-    symbols = [s for s in current_holdings.keys() if s != 'CASH']
+    symbols = list(current_holdings.keys())
 
     if not symbols:
         fig = go.Figure()
