@@ -27,6 +27,21 @@ NO_DIVIDEND_TAX = ['SHV', 'SGOV', 'BIL']
 # Rolling window for quantitative analysis
 QUANT_WINDOW = [21, 63, 252]
 
+# Multi-Market Configuration
+BASE_CURRENCY = 'HKD'
+MARKET_REGISTRY = {
+    'US': {
+        'currency': 'USD',
+        'benchmark': 'SPY',
+        'div_tax': 0.30
+    },
+    'HK': {
+        'currency': 'HKD',
+        'benchmark': '2800.HK',
+        'div_tax': 0.0
+    }
+}
+
 
 # Hosting 
 HOST = os.getenv("HOST")

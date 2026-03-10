@@ -338,15 +338,16 @@
             </div>
             <div style="text-align: right; font-size: 13px; color: var(--text-muted);">
                 <div><strong>Generated:</strong> {{ current_time }}</div>
-                <div>USD/HKD Rate: {{ summary.hkd_rate }}</div>
+                {% for pair, rate in fx_rates.items() %}
+                <div>{{ pair }} Rate: {{ rate }}</div>
+                {% endfor %}
             </div>
         </div>
 
         <div class="kpi-row">
             <div class="kpi-card">
-                <div class="kpi-label">Total Portfolio Value</div>
-                <div class="kpi-value">US$ {{ summary.current_equity_usd }}</div>
-                <div class="kpi-sub">HK$ {{ summary.current_equity_hkd }}</div>
+                <div class="kpi-label">Total Portfolio Value (Base)</div>
+                <div class="kpi-value">{{ summary.current_base_currency }} {{ summary.current_equity }}</div>
             </div>
             <div class="kpi-card" style="border-top-color: var(--positive);">
                 <div class="kpi-label">Total Return</div>
@@ -392,15 +393,17 @@
                             <div class="data-item">
                                 <div class="data-label data-label-tooltip">Market Value
                                     <span class="tooltip-text">Current liquidation value of all open positions in
-                                        USD.</span>
+                                        {{ summary.current_base_currency }}.</span>
                                 </div>
-                                <div class="data-val">US$ {{ summary.current_market_value_usd }}</div>
+                                <div class="data-val">{{ summary.current_base_currency }} {{
+                                    summary.current_market_value }}</div>
                             </div>
                             <div class="data-item">
                                 <div class="data-label data-label-tooltip">Cash Reserve
                                     <span class="tooltip-text">Uninvested cash available in the portfolio.</span>
                                 </div>
-                                <div class="data-val">US$ {{ summary.current_cash_usd }}</div>
+                                <div class="data-val">{{ summary.current_base_currency }} {{ summary.current_cash }}
+                                </div>
                             </div>
                             <div class="data-item">
                                 <div class="data-label data-label-tooltip">Nominal Return (%)
@@ -683,7 +686,8 @@
             <div class="content-card">
                 <h3>Total Profit/Loss Over Time</h3>
                 <p style="font-size: 13px; color: var(--text-muted); margin-top: -10px; margin-bottom: 15px;">
-                    Tracks the cumulative growth of your portfolio in nominal USD terms. This reflects the total change
+                    Tracks the cumulative growth of your portfolio in nominal {{ summary.current_base_currency }} terms.
+                    This reflects the total change
                     in equity weight (including cash injections) over the selected history.
                 </p>
                 <div class="plot-container">{{ wealth_html | safe }}</div>

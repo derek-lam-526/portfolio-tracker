@@ -21,8 +21,9 @@ class PortfolioTracker:
         self.dividends = {}
         self.splits = {}
         self.asset_info = {}
-        self.start_date = self.trades['DATE'].min()
-        self.end_date = datetime.now()
+        df_dates = pd.to_datetime(self.trades['DATE'])
+        self.start_date = df_dates.min()
+        self.end_date = max(datetime.now(), df_dates.max())
         self.dividend_history = []
         
     def fetch_market_data(self, update=True, show_timing=False, force_update_minute=False):
@@ -30,6 +31,12 @@ class PortfolioTracker:
         collector = TimingCollector(enabled=show_timing)
         metadata_path = os.path.join(config.DATA_DIR, "portfolio_metadata.pkl")
         
+        # Identify unique markets and currencies from trades
+        unique_markets = self.trades['MARKET'].unique().tolist()
+        required_currencies = [config.MARKET_REGISTRY[m]['currency'] for m in unique_markets if m in config.MARKET_REGISTRY]
+        if config.BASE_CURRENCY not in required_currencies:
+            required_currencies.append(config.BASE_CURRENCY)
+            
         if not update:
             print("⚠️  Update=False: Loading data from local cache...")
 
@@ -46,38 +53,58 @@ class PortfolioTracker:
                 print(f"No metadata cache found.")
 
             for symbol in self.symbols:
-                file_name = f"{symbol}.csv"
-                daily_path = os.path.join(config.DAILY_DATA_DIR, file_name)
-                if os.path.exists(daily_path):
-                    df = pd.read_csv(daily_path, index_col=0)
+                market = self.trades[self.trades['SYMBOL'] == symbol]['MARKET'].iloc[0]
+                market_dir = os.path.join(config.DAILY_DATA_DIR, market)
+                file_path = os.path.join(market_dir, f"{symbol}.csv")
+                
+                if os.path.exists(file_path):
+                    df = pd.read_csv(file_path, index_col=0)
                     df.index = pd.to_datetime(df.index, errors='coerce')
                     self.market_data[symbol] = df[df.index.notna()].sort_index()
                 else:
-                    print(f"Warning: No local data for {symbol}")
+                    print(f"Warning: No local data for {symbol} in {market}")
+            
+            # Load FX data
+            for curr in required_currencies:
+                if curr == config.BASE_CURRENCY: continue
+                pair = f"{curr}{config.BASE_CURRENCY}=X"
+                market_dir = os.path.join(config.DAILY_DATA_DIR, "FX")
+                file_path = os.path.join(market_dir, f"{pair}.csv")
+                if os.path.exists(file_path):
+                    df = pd.read_csv(file_path, index_col=0)
+                    df.index = pd.to_datetime(df.index, errors='coerce')
+                    self.market_data[pair] = df[df.index.notna()].sort_index()
             return 
             
-        print(f"Processing data for: {self.symbols}")
+        print(f"Processing data for markets: {unique_markets}")
 
-        def process_symbol(symbol):
+        # Prepare FX pairs
+        fx_pairs = [f"{curr}{config.BASE_CURRENCY}=X" for curr in required_currencies if curr != config.BASE_CURRENCY]
+        all_fetch_items = [(s, self.trades[self.trades['SYMBOL'] == s]['MARKET'].iloc[0]) for s in self.symbols]
+        all_fetch_items += [(p, "FX") for p in fx_pairs]
+
+        def process_item(item):
+            symbol, market = item
             try:
                 ticker = yf.Ticker(symbol)
                 start_str = (self.start_date - timedelta(days=5)).strftime('%Y-%m-%d')
                 
                 # --- DAILY DATA DOWNLOAD ---
-                file_name = f'{symbol}.csv'
-                daily_path = os.path.join(config.DAILY_DATA_DIR, file_name)
+                market_dir = os.path.join(config.DAILY_DATA_DIR, market)
+                os.makedirs(market_dir, exist_ok=True)
+                file_path = os.path.join(market_dir, f'{symbol}.csv')
                 existing_data = pd.DataFrame()
                 
-                if os.path.exists(daily_path):
+                if os.path.exists(file_path):
                     try:
-                        df = pd.read_csv(daily_path, index_col=0)
+                        df = pd.read_csv(file_path, index_col=0)
                         df.index = pd.to_datetime(df.index, errors='coerce')
                         existing_data = df[df.index.notna()].sort_index()
                     except Exception: pass
                 
                 t_start_hist = time.perf_counter()
                 new_hist = ticker.history(start=start_str, auto_adjust=False)
-                collector.record("Daily Data Download", time.perf_counter() - t_start_hist)
+                collector.record(f"Daily Data Download ({symbol})", time.perf_counter() - t_start_hist)
                 
                 # --- DAILY DATA PROCESSING/APPEND ---
                 t_start_proc = time.perf_counter()
@@ -90,13 +117,17 @@ class PortfolioTracker:
                         hist = combined
                     else:
                         hist = new_hist
-                    hist.to_csv(daily_path)
+                    hist.to_csv(file_path)
                     self.market_data[symbol] = hist
                 elif not existing_data.empty:
                     self.market_data[symbol] = existing_data
                 else:
                     self.market_data[symbol] = pd.DataFrame()
-                collector.record("Daily Data Processing & Save", time.perf_counter() - t_start_proc)
+                collector.record(f"Daily Data Processing ({symbol})", time.perf_counter() - t_start_proc)
+
+                # FX pairs don't need dividends/splits/minute-data
+                if market == "FX":
+                    return
 
                 # --- METADATA RETRIEVAL (DIVIDENDS, SPLITS, INFO) ---
                 t_start_meta = time.perf_counter()
@@ -109,11 +140,13 @@ class PortfolioTracker:
                     self.asset_info[symbol] = ticker.info
                 except Exception:
                     self.asset_info[symbol] = {}
-                collector.record("Metadata Retrieval (Divs/Splits/Info)", time.perf_counter() - t_start_meta)
+                collector.record(f"Metadata Retrieval ({symbol})", time.perf_counter() - t_start_meta)
 
                 # --- MINUTE DATA ---
                 t_start_min = time.perf_counter()
-                minute_path = os.path.join(config.MINUTE_DATA_DIR, file_name)
+                min_market_dir = os.path.join(config.MINUTE_DATA_DIR, market)
+                os.makedirs(min_market_dir, exist_ok=True)
+                minute_path = os.path.join(min_market_dir, f'{symbol}.csv')
                 
                 should_update_minute = True
                 if os.path.exists(minute_path) and not force_update_minute:
@@ -141,13 +174,13 @@ class PortfolioTracker:
                         else:
                             new_min.to_csv(minute_path)
                 
-                collector.record("Minute Data Download & Save", time.perf_counter() - t_start_min)
+                collector.record(f"Minute Data Processing ({symbol})", time.perf_counter() - t_start_min)
 
             except Exception as e:
                 print(f"Error processing {symbol}: {e}")
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=30) as executor:
-            executor.map(process_symbol, self.symbols)
+            executor.map(process_item, all_fetch_items)
 
         # --- Save metadata to cache --- 
         try: 
@@ -171,121 +204,160 @@ class PortfolioTracker:
         trades = self.trades.copy()
         trades['DATE'] = pd.to_datetime(trades['DATE'])
         
-        # Sign QTY and Cash Flows based on BUY/SELL
-        # In iterative logic:
-        # BUY:  holdings[symbol] += qty, cash -= (amt + fee)
-        # SELL: holdings[symbol] -= qty, cash += (amt - fee)
-        trades['SIGNED_QTY'] = 0.0
-        trades['NET_ASSET_CASH'] = 0.0
+        # 3. Align Market Data, Splits, Dividends, and FX
+        unique_markets = trades['MARKET'].unique().tolist()
+        required_currencies = list(set([config.MARKET_REGISTRY[m]['currency'] for m in unique_markets if m in config.MARKET_REGISTRY]))
         
-        buy_mask = trades['BUY/SELL'] == 'BUY'
-        sell_mask = trades['BUY/SELL'] == 'SELL'
-        
-        trades.loc[buy_mask, 'SIGNED_QTY'] = trades['QTY']
-        trades.loc[buy_mask, 'NET_ASSET_CASH'] = -(trades['AMT'] + trades['FEE'])
-        
-        trades.loc[sell_mask, 'SIGNED_QTY'] = -trades['QTY']
-        trades.loc[sell_mask, 'NET_ASSET_CASH'] = +(trades['AMT'] - trades['FEE'])
-
-        # 3. Align Market Data, Splits, and Dividends
         price_df = pd.DataFrame(1.0, index=full_idx, columns=self.symbols)
         split_df = pd.DataFrame(1.0, index=full_idx, columns=self.symbols)
         div_df = pd.DataFrame(0.0, index=full_idx, columns=self.symbols)
+        fx_df = pd.DataFrame(1.0, index=full_idx, columns=required_currencies)
 
         for sym in self.symbols:
+            market = trades[trades['SYMBOL'] == sym]['MARKET'].iloc[0]
             # Prices
             if sym in self.market_data and not self.market_data[sym].empty:
                 df = self.market_data[sym]
-                # Pad to fill non-trading days
                 price_df[sym] = df['Close'].reindex(full_idx, method='pad').fillna(0)
             else:
                 price_df[sym] = 0.0
 
             # Splits
-            # In iterative: holdings[symbol] *= split_ratio on the day of the split
             if sym in self.splits and not self.splits[sym].empty:
                 split_df[sym] = self.splits[sym].reindex(full_idx, fill_value=1.0)
 
             # Dividends (Net of Tax)
             if sym in self.dividends and not self.dividends[sym].empty:
-                is_treasury = sym in config.NO_DIVIDEND_TAX
-                tax_rate = 0.0 if is_treasury else 0.30
+                tax_rate = config.MARKET_REGISTRY.get(market, {}).get('div_tax', 0.30)
+                if sym in config.NO_DIVIDEND_TAX: tax_rate = 0.0
                 net_div = self.dividends[sym] * (1 - tax_rate)
                 div_df[sym] = net_div.reindex(full_idx, fill_value=0.0)
+
+        # Process FX Rates
+        for curr in required_currencies:
+            if curr == config.BASE_CURRENCY:
+                fx_df[curr] = 1.0
+                continue
+            pair = f"{curr}{config.BASE_CURRENCY}=X"
+            if pair in self.market_data and not self.market_data[pair].empty:
+                fx_df[curr] = self.market_data[pair]['Close'].reindex(full_idx, method='pad').ffill().bfill()
+            else:
+                print(f"Warning: No FX data for {pair}. Using 1.0 (Normalization may be incorrect).")
+                fx_df[curr] = 1.0
 
         # 4. Vectorized Holdings Calculation (Split-Adjusted)
         cum_split = split_df.cumprod()
         prev_cum_split = cum_split.shift(1, fill_value=1.0)
         
-        asset_mask = trades['BUY/SELL'].isin(['BUY', 'SELL'])
-        trade_qties = trades[asset_mask].groupby(['DATE', 'SYMBOL'])['SIGNED_QTY'].sum().unstack().reindex(full_idx).fillna(0)
+        asset_trades_mask = trades['BUY/SELL'].isin(['BUY', 'SELL'])
+        trade_qties = trades[asset_trades_mask].groupby(['DATE', 'SYMBOL'])['QTY'].sum().unstack().reindex(full_idx).fillna(0)
         
+        # Calculate signed quantities for holdings
+        signed_trade_qties = pd.DataFrame(0.0, index=full_idx, columns=self.symbols)
         for sym in self.symbols:
-            if sym not in trade_qties.columns:
-                trade_qties[sym] = 0.0
-        trade_qties = trade_qties[self.symbols]
+            sym_trades = trades[trades['SYMBOL'] == sym]
+            buy_mask = (sym_trades['BUY/SELL'] == 'BUY')
+            sell_mask = (sym_trades['BUY/SELL'] == 'SELL')
+            
+            sym_daily = pd.Series(0.0, index=full_idx)
+            buys = sym_trades[buy_mask].groupby('DATE')['QTY'].sum()
+            sells = sym_trades[sell_mask].groupby('DATE')['QTY'].sum()
+            
+            sym_daily = sym_daily.add(buys, fill_value=0).add(-sells, fill_value=0)
+            signed_trade_qties[sym] = sym_daily
 
-        adj_qty = trade_qties / prev_cum_split
+        adj_qty = signed_trade_qties / prev_cum_split
         holdings_df = adj_qty.cumsum() * cum_split
         
-        # 5. Market Value
-        market_value_df = holdings_df * price_df
-        daily_market_value = market_value_df.sum(axis=1)
+        # 5. Market Value (per asset) - converted to BASE_CURRENCY
+        market_value_df = pd.DataFrame(0.0, index=full_idx, columns=self.symbols)
+        for sym in self.symbols:
+            market = trades[trades['SYMBOL'] == sym]['MARKET'].iloc[0]
+            currency = config.MARKET_REGISTRY.get(market, {}).get('currency', config.BASE_CURRENCY)
+            local_mv = holdings_df[sym] * price_df[sym]
+            market_value_df[sym] = local_mv * fx_df[currency]
 
-        # 6. Cash Flow and Dividend History
-        daily_div_income = (holdings_df * div_df).sum(axis=1)
-        
-        # Record Dividend History
-        div_hits = (holdings_df * div_df)
-        div_mask = div_hits > 1e-6 # Avoid precision noise
-        for date in div_mask.index[div_mask.any(axis=1)]:
-            for sym in div_mask.columns[div_mask.loc[date]]:
+        daily_market_value_base = market_value_df.sum(axis=1)
+
+        # 6. Cash Flow and Dividend Income (Per Currency)
+        daily_cash_flow_per_curr = {curr: pd.Series(0.0, index=full_idx) for curr in required_currencies}
+        invested_capital_base = pd.Series(0.0, index=full_idx)
+
+        # Asset Trade Cash Flows (including fees)
+        for _, row in trades[asset_trades_mask].iterrows():
+            market = row['MARKET']
+            curr = config.MARKET_REGISTRY.get(market, {}).get('currency', config.BASE_CURRENCY)
+            amount = row['QTY'] * row['PRICE']
+            fee = row['FEE']
+            if row['BUY/SELL'] == 'BUY':
+                daily_cash_flow_per_curr[curr].loc[row['DATE']] -= (amount + fee)
+            else:
+                daily_cash_flow_per_curr[curr].loc[row['DATE']] += (amount - fee)
+
+        # Dividends per currency
+        for sym in self.symbols:
+            market = trades[trades['SYMBOL'] == sym]['MARKET'].iloc[0]
+            curr = config.MARKET_REGISTRY.get(market, {}).get('currency', config.BASE_CURRENCY)
+            div_income = holdings_df[sym] * div_df[sym]
+            daily_cash_flow_per_curr[curr] += div_income
+            
+            # Record Dividend History
+            div_mask = div_income > 1e-6
+            for date in div_mask.index[div_mask]:
                 self.dividend_history.append({
-                    'Date': date, 'Symbol': sym, 'Amount': div_hits.loc[date, sym]
+                    'Date': date, 'Symbol': sym, 'Amount': div_income.loc[date] # Amount is in local currency
                 })
 
-        # Asset Trade Cash Flows
-        daily_asset_cash_flow = trades[asset_mask].groupby('DATE')['NET_ASSET_CASH'].sum().reindex(full_idx).fillna(0)
-        
-        # Cash Trades (Deposits/Withdrawals)
-        cash_mask = trades['BUY/SELL'].isin(['DEPOSIT', 'WITHDRAW'])
-        cash_trades = trades[cash_mask].copy()
-        cash_trades['FLOW'] = 0.0
-        cash_trades['CAPITAL_CHANGE'] = 0.0
-        
-        dep_mask = cash_trades['BUY/SELL'] == 'DEPOSIT'
-        wit_mask = cash_trades['BUY/SELL'] == 'WITHDRAW'
-        
-        cash_trades.loc[dep_mask, 'FLOW'] = cash_trades['AMT'] - cash_trades['FEE']
-        cash_trades.loc[dep_mask, 'CAPITAL_CHANGE'] = cash_trades['AMT']
-        
-        # Withdraw iterative: cash -= (amt + fee), invested -= amt
-        cash_trades.loc[wit_mask, 'FLOW'] = -(cash_trades['AMT'] + cash_trades['FEE'])
-        cash_trades.loc[wit_mask, 'CAPITAL_CHANGE'] = -cash_trades['AMT']
-        
-        daily_cash_trades_flow = cash_trades.groupby('DATE')['FLOW'].sum().reindex(full_idx).fillna(0)
-        daily_capital_change = cash_trades.groupby('DATE')['CAPITAL_CHANGE'].sum().reindex(full_idx).fillna(0)
-        
-        total_cash_change = daily_asset_cash_flow + daily_cash_trades_flow + daily_div_income
-        cash_series = total_cash_change.cumsum()
-        invested_capital_series = daily_capital_change.cumsum()
-        
-        # 7. Final Assembly
-        total_equity = daily_market_value + cash_series
+        # Cash Trades (Deposits/Withdrawals) & Exchange
+        for _, row in trades[trades['BUY/SELL'].isin(['DEPOSIT', 'WITHDRAW', 'EXCHANGE'])].iterrows():
+            if row['BUY/SELL'] == 'EXCHANGE':
+                # EXCHANGE logic: MARKET is source, SYMBOL is target market code
+                src_market = row['MARKET']
+                tgt_market = row['SYMBOL']
+                src_curr = config.MARKET_REGISTRY.get(src_market, {}).get('currency')
+                tgt_curr = config.MARKET_REGISTRY.get(tgt_market, {}).get('currency')
+                
+                # QTY is amount exiting source, PRICE is amount entering target
+                daily_cash_flow_per_curr[src_curr].loc[row['DATE']] -= (row['QTY'] + row['FEE'])
+                daily_cash_flow_per_curr[tgt_curr].loc[row['DATE']] += row['PRICE']
+            else:
+                market = row['MARKET']
+                curr = config.MARKET_REGISTRY.get(market, {}).get('currency', config.BASE_CURRENCY)
+                amount = row['PRICE'] # For cash, PRICE is the total amount (compatibility)
+                fee = row['FEE']
+                
+                if row['BUY/SELL'] == 'DEPOSIT':
+                    flow = amount - fee
+                    daily_cash_flow_per_curr[curr].loc[row['DATE']] += flow
+                    invested_capital_base.loc[row['DATE']] += (amount * fx_df[curr].loc[row['DATE']])
+                else: # WITHDRAW
+                    flow = -(amount + fee)
+                    daily_cash_flow_per_curr[curr].loc[row['DATE']] += flow
+                    invested_capital_base.loc[row['DATE']] -= (amount * fx_df[curr].loc[row['DATE']])
+
+        # 7. Aggregate Total Cash in BASE_CURRENCY
+        total_cash_base = pd.Series(0.0, index=full_idx)
+        for curr, flow_series in daily_cash_flow_per_curr.items():
+            cum_cash_local = flow_series.cumsum()
+            total_cash_base += (cum_cash_local * fx_df[curr])
+
+        # 8. Final Assembly
+        total_equity_base = daily_market_value_base + total_cash_base
+        invested_capital_cum_base = invested_capital_base.cumsum()
         
         self.df_portfolio = pd.DataFrame({
-            'Cash': cash_series,
-            'Market_Value': daily_market_value,
-            'Total_Equity': total_equity,
-            'Invested_Capital': invested_capital_series,
-            'Net_Flow': daily_capital_change
+            'Cash': total_cash_base,
+            'Market_Value': daily_market_value_base,
+            'Total_Equity': total_equity_base,
+            'Invested_Capital': invested_capital_cum_base,
+            'Net_Flow': invested_capital_base # This is already daily base flow
         }, index=full_idx)
         
         # Business days filter
         self.df_portfolio = self.df_portfolio[self.df_portfolio.index.dayofweek < 5]
         
         # Weights
-        weight_df = market_value_df.divide(total_equity, axis=0).fillna(0)
+        weight_df = market_value_df.divide(total_equity_base, axis=0).fillna(0)
         self.historical_weights = weight_df[weight_df.index.dayofweek < 5]
         
         return self.df_portfolio

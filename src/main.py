@@ -81,7 +81,7 @@ def upload_to_host(file_path):
         print("✅ Success! Portfolio updated on host.")
     
     except Exception as e:
-        print(f"❌ SRCF Upload failed: {str(e)}")
+        print(f"❌ Upload failed: {str(e)}")
 
 def run_portfolio_update(update_market_data=True, upload_results=True, show_timing=False, force_update_minute=False):
     start_time = time.perf_counter()
@@ -132,7 +132,7 @@ def run_portfolio_update(update_market_data=True, upload_results=True, show_timi
 
     # Trade Analysis
     with Timer("Analyzing trades", enabled=show_timing):
-        df_completed_trades = trade_analyzer.match_trades(df_trades)
+        df_completed_trades = trade_analyzer.match_trades(df_trades, portfolio_tracker=portfolio_tracker)
         trade_results = trade_analyzer.calculate_trade_metrics(df_completed_trades)
         fig_trades = trade_analyzer.get_trade_analysis_plots(df_completed_trades)
 

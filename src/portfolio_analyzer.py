@@ -1,4 +1,5 @@
 import config
+import os
 import mappings
 
 import pandas as pd 
@@ -30,25 +31,7 @@ def fetch_fama_french_factors(start_date, end_date):
     import pickle
     from datetime import datetime, timedelta
 
-    cache_path = os.path.join(config.DATA_DIR, "fama_french_factors.pkl")
-    
-    # --- CHECK CACHE ---
-    if os.path.exists(cache_path):
-        try:
-            mtime = datetime.fromtimestamp(os.path.getmtime(cache_path))
-            # Refresh cache if older than 30 days
-            if datetime.now() - mtime < timedelta(days=30):
-                with open(cache_path, 'rb') as f:
-                    ff_df = pickle.load(f)
-                
-                # Filter and return
-                start = pd.to_datetime(start_date)
-                end = pd.to_datetime(end_date)
-                return ff_df[(ff_df.index >= start) & (ff_df.index <= end)]
-        except Exception as e:
-            print(f"⚠️  Cache load failed: {e}")
-
-    # --- DOWNLOAD IF NO CACHE ---
+    # --- DOWNLOAD DATA ---
     url = "https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/ftp/F-F_Research_Data_Factors_daily_CSV.zip"
     try:
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
@@ -70,13 +53,8 @@ def fetch_fama_french_factors(start_date, end_date):
         ff_df = pd.read_csv(io.StringIO(csv_data), index_col=0)
         ff_df.index = pd.to_datetime(ff_df.index.astype(str), format='%Y%m%d')
         ff_df.columns = ff_df.columns.str.strip()
-        
         for col in ff_df.columns:
             ff_df[col] = pd.to_numeric(ff_df[col], errors='coerce') / 100.0
-            
-        # Save to cache
-        with open(cache_path, 'wb') as f:
-            pickle.dump(ff_df, f)
             
         start = pd.to_datetime(start_date)
         end = pd.to_datetime(end_date)
@@ -86,15 +64,52 @@ def fetch_fama_french_factors(start_date, end_date):
         return None
 
 class PortfolioAnalyzer:
-    def __init__(self, history_df, trades_df, portfolio_tracker):
+    def __init__(self, history_df, trades_df, tracker_obj):
         self.history_df = history_df.copy()
-        self.trades_df = trades_df.copy()
-        self.portfolio_tracker = portfolio_tracker
-        self.metrics = None
-        self.allocation_data = None
+        self.trades = trades_df.copy()
+        self.tracker = tracker_obj
         
-        # Core data preparation
+        # Benchmarks
+        self.benchmarks = {}
+        unique_markets = self.trades['MARKET'].unique()
+        benchmark_tickers = []
+        for market in unique_markets:
+            if market in config.MARKET_REGISTRY:
+                ticker = config.MARKET_REGISTRY[market]['benchmark']
+                self.benchmarks[market] = ticker
+                benchmark_tickers.append(ticker)
+        
+        # Also include standard plot benchmarks from config
+        benchmark_tickers.extend(config.PLOT_BENCHMARK)
+        benchmark_tickers = list(set(benchmark_tickers))
+        
+        self.benchmark_data = {}
+        self._fetch_benchmark_data(benchmark_tickers)
         self._prepare_data()
+
+    def _fetch_benchmark_data(self, tickers):
+        for ticker_symbol in tickers:
+            # Find which market this benchmark belongs to for storage path
+            market = "US" # Default
+            for m, props in config.MARKET_REGISTRY.items():
+                if props['benchmark'] == ticker_symbol:
+                    market = m
+                    break
+            
+            market_dir = os.path.join(config.DAILY_DATA_DIR, market)
+            file_path = os.path.join(market_dir, f"{ticker_symbol}.csv")
+            
+            if os.path.exists(file_path):
+                df = pd.read_csv(file_path, index_col=0)
+                df.index = pd.to_datetime(df.index)
+                self.benchmark_data[ticker_symbol] = df['Close'].reindex(self.history_df.index, method='pad').fillna(0)
+            else:
+                print(f"Downloading benchmark data for {ticker_symbol}...")
+                data = yf.download(ticker_symbol, start=self.tracker.start_date, end=datetime.now(), progress=False)
+                if not data.empty:
+                    os.makedirs(market_dir, exist_ok=True)
+                    data.to_csv(file_path)
+                    self.benchmark_data[ticker_symbol] = data['Close'].reindex(self.history_df.index, method='pad').fillna(0)
 
     def _prepare_data(self):
         """Ensures fundamental return and PnL columns are present in history_df."""
@@ -281,11 +296,11 @@ class PortfolioAnalyzer:
         df = self.history_df
         fig = go.Figure()
 
-        fig.add_trace(go.Scatter(x=df.index, y=df['PnL'], mode='lines', name='Total PnL', line=dict(color='black', width=1), hovertemplate="<b>%{x}</b><br>PnL: US$ %{y:,.2f}<extra></extra>"))
+        fig.add_trace(go.Scatter(x=df.index, y=df['PnL'], mode='lines', name='Total PnL', line=dict(color='black', width=1), hovertemplate="<b>%{x}</b><br>PnL: " + config.BASE_CURRENCY + " %{y:,.2f}<extra></extra>"))
         fig.add_trace(go.Scatter(x=df.index, y=df['PnL'].where(df['PnL'] >= 0, 0), mode='none', fill='tozeroy', fillcolor='rgba(0, 255, 0, 0.3)', name='Profit', hoverinfo='skip'))
         fig.add_trace(go.Scatter(x=df.index, y=df['PnL'].where(df['PnL'] < 0, 0), mode='none', fill='tozeroy', fillcolor='rgba(255, 0, 0, 0.3)', name='Loss', hoverinfo='skip'))
 
-        fig.update_layout(title='Interactive Total Profit/Loss Over Time', xaxis_title='Date', yaxis_title='PnL (USD)', hovermode='x unified', height=500)
+        fig.update_layout(title='Interactive Total Profit/Loss Over Time', xaxis_title='Date', yaxis_title=f'PnL ({config.BASE_CURRENCY})', hovermode='x unified', height=500)
         fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
         if show: fig.show()
         return fig
@@ -296,19 +311,19 @@ class PortfolioAnalyzer:
                             subplot_titles=("Portfolio Value & Invested Capital", "Net Profit / Loss"))
         
         # Wealth
-        fig.add_trace(go.Scatter(x=df.index, y=df['Invested_Capital'], mode='lines', name='Invested Capital', line=dict(color='#94a3b8', width=1.5, dash='dot'), hovertemplate="Invested: US$ %{y:,.2f}<extra></extra>"), row=1, col=1)
-        fig.add_trace(go.Scatter(x=df.index, y=df['Total_Equity'], mode='lines', name='Total Equity', line=dict(color=COLOR_PORT_MAIN, width=2.5), fill='tonexty', fillcolor='rgba(37, 99, 235, 0.08)', hovertemplate="Equity: US$ %{y:,.2f}<extra></extra>"), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=df['Invested_Capital'], mode='lines', name='Invested Capital', line=dict(color='#94a3b8', width=1.5, dash='dot'), hovertemplate="Invested: " + config.BASE_CURRENCY + " %{y:,.2f}<extra></extra>"), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=df['Total_Equity'], mode='lines', name='Total Equity', line=dict(color=COLOR_PORT_MAIN, width=2.5), fill='tonexty', fillcolor='rgba(37, 99, 235, 0.08)', hovertemplate="Equity: " + config.BASE_CURRENCY + " %{y:,.2f}<extra></extra>"), row=1, col=1)
  
         # PnL
-        fig.add_trace(go.Scatter(x=df.index, y=df['PnL'], mode='lines', name='Net PnL', line=dict(color=COLOR_ACCENT, width=2), fill='tozeroy', fillcolor='rgba(139, 92, 246, 0.08)', hovertemplate="PnL: US$ %{y:,.2f}<extra></extra>"), row=2, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=df['PnL'], mode='lines', name='Net PnL', line=dict(color=COLOR_ACCENT, width=2), fill='tozeroy', fillcolor='rgba(139, 92, 246, 0.08)', hovertemplate="PnL: " + config.BASE_CURRENCY + " %{y:,.2f}<extra></extra>"), row=2, col=1)
         fig.add_hline(y=0, line_dash="solid", line_color="#cbd5e1", row=2, col=1)
         
         fig.update_layout(template="plotly_white", hovermode="x unified", height=700, showlegend=True,
                           legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
                           margin=dict(l=50, r=20, t=60, b=50), font=dict(family="Inter, sans-serif", size=12, color=COLOR_TEXT))
         fig.update_xaxes(title_text='Date', row=2, col=1)
-        fig.update_yaxes(title_text='Equity (USD)', row=1, col=1)
-        fig.update_yaxes(title_text='PnL (USD)', row=2, col=1)
+        fig.update_yaxes(title_text=f'Equity ({config.BASE_CURRENCY})', row=1, col=1)
+        fig.update_yaxes(title_text=f'PnL ({config.BASE_CURRENCY})', row=2, col=1)
         fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
         if show: fig.show()
         return fig
@@ -376,8 +391,8 @@ class PortfolioAnalyzer:
 
     def get_allocation(self, show=False):
         """Calculates asset allocation across symbols, categories, and sectors."""
-        trades_df = self.trades_df
-        portfolio_tracker = self.portfolio_tracker
+        trades_df = self.trades
+        portfolio_tracker = self.tracker
         history_df = self.history_df
         
         last_holdings = {}
@@ -438,10 +453,10 @@ class PortfolioAnalyzer:
 
         fig.add_trace(go.Pie(labels=df_alloc['Symbol'], values=df_alloc['Value'], hole=0.45, 
                              marker=dict(colors=palette, line=dict(color='#ffffff', width=2)),
-                             hovertemplate="<b>%{label}</b><br>US$ %{value:,.2f}<br>%{percent}<extra></extra>"), 1, 1)
+                             hovertemplate="<b>%{label}</b><br>" + config.BASE_CURRENCY + " %{value:,.2f}<br>%{percent}<extra></extra>"), 1, 1)
         fig.add_trace(go.Pie(labels=df_cat['Category'], values=df_cat['Value'], hole=0.45, 
                              marker=dict(colors=palette, line=dict(color='#ffffff', width=2)),
-                             hovertemplate="<b>%{label}</b><br>US$ %{value:,.2f}<br>%{percent}<extra></extra>"), 1, 2)
+                             hovertemplate="<b>%{label}</b><br>" + config.BASE_CURRENCY + " %{value:,.2f}<br>%{percent}<extra></extra>"), 1, 2)
         
         fig.update_layout(template='plotly_white', height=500, margin=dict(t=80, b=120, l=20, r=20), showlegend=True,
                           legend=dict(orientation="h", yanchor="top", y=-0.25, xanchor="center", x=0.5),
@@ -540,8 +555,8 @@ class PortfolioAnalyzer:
 
         returns_dict = {}
         for sym in symbols:
-            if sym in self.portfolio_tracker.market_data and not self.portfolio_tracker.market_data[sym].empty:
-                close = self.portfolio_tracker.market_data[sym]['Close'].copy()
+            if sym in self.tracker.market_data and not self.tracker.market_data[sym].empty:
+                close = self.tracker.market_data[sym]['Close'].copy()
                 if close.index.tz: close.index = close.index.tz_localize(None)
                 returns_dict[sym] = close.pct_change().fillna(0)
 
@@ -565,15 +580,15 @@ class PortfolioAnalyzer:
         if not symbols: return go.Figure(), pd.DataFrame()
 
         try:
-            bench_data = self.portfolio_tracker.market_data.get(benchmark_symbol) or yf.Ticker(benchmark_symbol).history(period="1y")
+            bench_data = self.tracker.market_data.get(benchmark_symbol) or yf.Ticker(benchmark_symbol).history(period="1y")
             bench_ret = bench_data['Close'].pct_change().dropna()
             if bench_ret.index.tz: bench_ret.index = bench_ret.index.tz_localize(None)
         except: return go.Figure(), pd.DataFrame()
 
         returns_list, valid_syms = [], []
         for sym in symbols:
-            if sym in self.portfolio_tracker.market_data and not self.portfolio_tracker.market_data[sym].empty:
-                ret = self.portfolio_tracker.market_data[sym]['Close'].pct_change().dropna()
+            if sym in self.tracker.market_data and not self.tracker.market_data[sym].empty:
+                ret = self.tracker.market_data[sym]['Close'].pct_change().dropna()
                 if ret.index.tz: ret.index = ret.index.tz_localize(None)
                 returns_list.append(ret); valid_syms.append(sym)
         
@@ -695,20 +710,14 @@ class PortfolioAnalyzer:
         m, a = self.metrics, self.allocation_data
         df = self.history_df
         
-        try:
-            hkd_rate = yf.Ticker("HKD=X").history(period="1d")['Close'].iloc[-1]
-        except: hkd_rate = 7.78
-
         # Formatting helper
-        def fmt_v(v, is_pct=False, show_hkd=True):
+        def fmt_v(v, is_pct=False):
             color = "#10b981" if v >= 0 else "#ef4444"
             bold_style = f'color: {color}; font-weight: 700;'
             if is_pct:
                 return f'<span style="{bold_style}">{v:.2%}</span>'
             
-            hkd_text = f" <span style='font-size: 0.8em; color: #6b7280; font-weight: 400;'>| HK$ {v * hkd_rate:,.2f}</span>" if show_hkd else ""
-            return f'<span style="{bold_style}">US$ {v:,.2f}{hkd_text}</span>'
-
+            return f'<span style="{bold_style}">{config.BASE_CURRENCY} {v:,.2f}</span>'
         # Composition strings
         sorted_cats = sorted(a['category_values'].items(), key=lambda x: x[1], reverse=True)
         asset_alloc_str = " | ".join([f"{k} {v/df['Total_Equity'].iloc[-1]:.1%}" for k, v in sorted_cats])
@@ -728,11 +737,10 @@ class PortfolioAnalyzer:
         summary = {
             "first_date": m['first_date'].strftime('%Y-%m-%d'),
             "current_date": datetime.now().strftime('%Y-%m-%d'),
-            "hkd_rate": f"{hkd_rate:.4f}",
-            "current_equity_usd": f"{df['Total_Equity'].iloc[-1]:,.2f}",
-            "current_equity_hkd": f"{df['Total_Equity'].iloc[-1] * hkd_rate:,.2f}",
-            "current_market_value_usd": f"{df['Market_Value'].iloc[-1]:,.2f}",
-            "current_cash_usd": f"{df['Cash'].iloc[-1]:,.2f}",
+            "current_base_currency": config.BASE_CURRENCY,
+            "current_equity": f"{df['Total_Equity'].iloc[-1]:,.2f}",
+            "current_market_value": f"{df['Market_Value'].iloc[-1]:,.2f}",
+            "current_cash": f"{df['Cash'].iloc[-1]:,.2f}",
             
             # KPI Row
             "total_return_abs_html": fmt_v(df['PnL'].iloc[-1]),
@@ -753,7 +761,7 @@ class PortfolioAnalyzer:
             "information_ratio": f"{m['information_ratio']:.2f}" if not np.isnan(m['information_ratio']) else "N/A",
             "treynor_ratio": f"{m['treynor_ratio']:.2f}" if not np.isnan(m['treynor_ratio']) else "N/A",
             "var_95_percent_return": f"{m['var_95_percent_return']:.2%}",
-            "max_return_html": fmt_v(m['max_return'], show_hkd=False),
+            "max_return_html": fmt_v(m['max_return']),
             "benchmark_total_return": f"{m['benchmark_return']:.2%}",
             
             # Risk Profile
@@ -769,7 +777,7 @@ class PortfolioAnalyzer:
             "total_trades": trade_results.get('total_trades', 0) if trade_results else 0,
             "win_rate": f"{trade_results.get('hit_rate', 0):.1%}" if trade_results else "0.0%",
             "profit_factor": f"{trade_results.get('profit_factor', 0):.2f}" if trade_results else "0.00",
-            "expectancy": f"US$ {expectancy:,.2f}" if trade_results else "US$ 0.00",
+            "expectancy": f"{config.BASE_CURRENCY} {expectancy:,.2f}" if trade_results else f"{config.BASE_CURRENCY} 0.00",
             "total_realized_pnl_html": fmt_v(realized_pnl),
             
             # Fama-French

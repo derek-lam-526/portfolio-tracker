@@ -73,8 +73,8 @@ def load_trade_history(filepath):
     if 'FEE' not in df.columns:
         df['FEE'] = 0.0
         
-    buysell_order = ['DEPOSIT', 'BUY', 'WITHDRAW', 'SELL']
-    df['BUY/SELL'] = pd.Categorical(df['BUY/SELL'], categories=buysell_order, ordered=True)
+    buysell_order = ['DEPOSIT', 'BUY', 'WITHDRAW', 'SELL', 'EXCHANGE']
+    df['BUY/SELL'] = pd.Categorical(df['BUY/SELL'].str.upper(), categories=buysell_order, ordered=True)
 
     return df.sort_values(['DATE', 'BUY/SELL'])
 
