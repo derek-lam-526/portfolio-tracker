@@ -19,7 +19,7 @@ TRADE_EXCEL_SHEET = os.getenv("TRADE_EXCEL_SHEET")
 # Configuration
 TRADE_HISTORY_FILE = os.path.join(INPUT_DIR, 'trade_history.csv')
 METRICS_BENCHMARK = "SPY"
-PLOT_BENCHMARK = ["SPY","QQQ","VEU"]
+PLOT_BENCHMARK = ["SPY","QQQ","VEU","^HSI"]
 
 # Tickers without dividend tax
 NO_DIVIDEND_TAX = ['SHV', 'SGOV', 'BIL']
@@ -29,19 +29,29 @@ QUANT_WINDOW = [21, 63, 252]
 
 # Multi-Market Configuration
 BASE_CURRENCY = 'HKD'
+SECONDARY_CURRENCY = 'USD'
 MARKET_REGISTRY = {
     'US': {
         'currency': 'USD',
-        'benchmark': 'SPY',
+        'benchmark': '^GSPC',
         'div_tax': 0.30
     },
     'HK': {
         'currency': 'HKD',
-        'benchmark': '2800.HK',
+        'benchmark': '^HSI',
+        'div_tax': 0.0
+    },
+    'L': {
+        'currency': 'GBP',
+        'benchmark': '^FTSE',
+        'div_tax': 0.0
+    },
+    'J': {
+        'currency': 'JPY',
+        'benchmark': '^N225',
         'div_tax': 0.0
     }
 }
-
 
 # Hosting 
 HOST = os.getenv("HOST")

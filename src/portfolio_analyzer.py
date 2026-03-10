@@ -100,13 +100,23 @@ class PortfolioAnalyzer:
             file_path = os.path.join(market_dir, f"{ticker_symbol}.csv")
             
             if os.path.exists(file_path):
-                df = pd.read_csv(file_path, index_col=0)
+                # Handle possible MultiIndex header from yfinance download
+                df = pd.read_csv(file_path, index_col=0, header=[0, 1] if '^' in ticker_symbol else 0)
+                if isinstance(df.columns, pd.MultiIndex):
+                    df.columns = df.columns.get_level_values(0)
+                
+                # Cleanup index if it contains 'Ticker' or 'Date' from MultiIndex artifacts
+                df = df[~df.index.isin(['Ticker', 'Date'])]
                 df.index = pd.to_datetime(df.index)
                 self.benchmark_data[ticker_symbol] = df['Close'].reindex(self.history_df.index, method='pad').fillna(0)
             else:
                 print(f"Downloading benchmark data for {ticker_symbol}...")
                 data = yf.download(ticker_symbol, start=self.tracker.start_date, end=datetime.now(), progress=False)
                 if not data.empty:
+                    # Flatten MultiIndex if present
+                    if isinstance(data.columns, pd.MultiIndex):
+                        data.columns = data.columns.get_level_values(0)
+                    
                     os.makedirs(market_dir, exist_ok=True)
                     data.to_csv(file_path)
                     self.benchmark_data[ticker_symbol] = data['Close'].reindex(self.history_df.index, method='pad').fillna(0)
@@ -409,7 +419,18 @@ class PortfolioAnalyzer:
         current_values = {}
         for sym, qty in current_holdings.items():
             if sym in portfolio_tracker.market_data and not portfolio_tracker.market_data[sym].empty:
-                current_values[sym] = qty * portfolio_tracker.market_data[sym].iloc[-1]['Close']
+                local_price = portfolio_tracker.market_data[sym].iloc[-1]['Close']
+                
+                # Normalize to BASE_CURRENCY
+                market = trades_df[trades_df['SYMBOL'] == sym]['MARKET'].iloc[0]
+                currency = config.MARKET_REGISTRY.get(market, {}).get('currency', config.BASE_CURRENCY)
+                fx_rate = 1.0
+                if currency != config.BASE_CURRENCY:
+                    pair = f"{currency}{config.BASE_CURRENCY}=X"
+                    if pair in portfolio_tracker.market_data and not portfolio_tracker.market_data[pair].empty:
+                        fx_rate = portfolio_tracker.market_data[pair].iloc[-1]['Close']
+                
+                current_values[sym] = qty * local_price * fx_rate
 
         if history_df['Cash'].iloc[-1] > 0:
             current_values['Liquid Cash'] = history_df['Cash'].iloc[-1]
@@ -714,14 +735,37 @@ class PortfolioAnalyzer:
         m, a = self.metrics, self.allocation_data
         df = self.history_df
         
+        # Get secondary currency rate if configured
+        sec_curr = getattr(config, 'SECONDARY_CURRENCY', None)
+        sec_rate = 1.0
+        if sec_curr and sec_curr != config.BASE_CURRENCY:
+            pair = f"{sec_curr}{config.BASE_CURRENCY}=X"
+            if pair in self.tracker.market_data:
+                sec_rate = self.tracker.market_data[pair]['Close'].iloc[-1]
+            else:
+                # Fallback to inverse if base->sec exists
+                rev_pair = f"{config.BASE_CURRENCY}{sec_curr}=X"
+                if rev_pair in self.tracker.market_data:
+                    sec_rate = 1.0 / self.tracker.market_data[rev_pair]['Close'].iloc[-1]
+
         # Formatting helper
-        def fmt_v(v, is_pct=False):
-            color = "#10b981" if v >= 0 else "#ef4444"
-            bold_style = f'color: {color}; font-weight: 700;'
+        def fmt_v(v, is_pct=False, is_neutral=False):
+            if is_neutral:
+                bold_style = 'color: #111827; font-weight: 700;'
+            else:
+                color = "#10b981" if v >= 0 else "#ef4444"
+                bold_style = f'color: {color}; font-weight: 700;'
+
             if is_pct:
                 return f'<span style="{bold_style}">{v:.2%}</span>'
             
-            return f'<span style="{bold_style}">{config.BASE_CURRENCY} {v:,.2f}</span>'
+            main_val = f'<span style="{bold_style}">{config.BASE_CURRENCY} {v:,.2f}</span>'
+            if sec_curr and sec_curr != config.BASE_CURRENCY and sec_rate != 1.0:
+                sec_v = v / sec_rate
+                sec_text = f" <span style='font-size: 0.8em; color: #6b7280; font-weight: 400;'>| {sec_curr} {sec_v:,.2f}</span>"
+                return f"{main_val}{sec_text}"
+            
+            return main_val
         # Composition strings
         sorted_cats = sorted(a['category_values'].items(), key=lambda x: x[1], reverse=True)
         asset_alloc_str = " | ".join([f"{k} {v/df['Total_Equity'].iloc[-1]:.1%}" for k, v in sorted_cats])
@@ -742,9 +786,11 @@ class PortfolioAnalyzer:
             "first_date": m['first_date'].strftime('%Y-%m-%d'),
             "current_date": datetime.now().strftime('%Y-%m-%d'),
             "current_base_currency": config.BASE_CURRENCY,
-            "current_equity": f"{df['Total_Equity'].iloc[-1]:,.2f}",
-            "current_market_value": f"{df['Market_Value'].iloc[-1]:,.2f}",
-            "current_cash": f"{df['Cash'].iloc[-1]:,.2f}",
+            "secondary_currency": sec_curr,
+            "secondary_fx_rate": f"{1.0/sec_rate:.4f}" if sec_rate != 0 else "0.0000",
+            "current_equity_html": fmt_v(df['Total_Equity'].iloc[-1], is_neutral=True),
+            "current_market_value_html": fmt_v(df['Market_Value'].iloc[-1], is_neutral=True),
+            "current_cash_html": fmt_v(df['Cash'].iloc[-1], is_neutral=True),
             
             # KPI Row
             "total_return_abs_html": fmt_v(df['PnL'].iloc[-1]),

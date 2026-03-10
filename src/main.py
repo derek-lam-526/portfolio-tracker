@@ -33,26 +33,28 @@ def get_trade_history() -> pd.DataFrame:
     trades_df = data_manager.load_trade_history(filepath=config.TRADE_HISTORY_FILE)
     return trades_df
 
-def get_portfolio_history(portfolio_tracker, update=True, show_timing=False, force_update_minute=False) -> pd.DataFrame:
+def get_portfolio_history(portfolio_tracker, update=True, show_timing=False, force_update=False, force_update_minute=False) -> pd.DataFrame:
     with Timer(f"Fetching market data{' (no update)' if not update else ''}", enabled=show_timing):
-        portfolio_tracker.fetch_market_data(update=update, show_timing=show_timing, force_update_minute=force_update_minute)
+        portfolio_tracker.fetch_market_data(update=update, show_timing=show_timing, force_update=force_update, force_update_minute=force_update_minute)
     
     with Timer("Processing portfolio history", enabled=show_timing):
         history_df = portfolio_tracker.process_portfolio()
     
     return history_df
 
-def create_report(figs, df_alloc, df_trades, open_report = False):
-    report_path = report_manager.create_report(figs, df_alloc, df_trades)
+def create_report(figs, df_alloc, df_trades, tracker_obj, open_report = False):
+    report_path = report_manager.create_report(figs, df_alloc, df_trades, tracker_obj=tracker_obj)
     latest_path = os.path.join(config.OUTPUT_DIR, "portfolio_report_latest.html")
     print(f"✅ Saved report to: {report_path}")
     print(f"✅ Updated main report: {latest_path}")
     shutil.copy(report_path, latest_path)
     if open_report:
-        is_open = webbrowser.open(report_path.as_uri())
-        if is_open:
-            print(f"✅ Opened report in browser")
-        else:
+        # Use simple open for broad compatibility
+        try:
+            is_open = webbrowser.open(Path(report_path).absolute().as_uri())
+            if is_open:
+                print(f"✅ Opened report in browser")
+        except:
             print(f"❌ Could not open browser automatically. Please open the file manually.")
     return report_path, latest_path
 
@@ -83,7 +85,7 @@ def upload_to_host(file_path):
     except Exception as e:
         print(f"❌ Upload failed: {str(e)}")
 
-def run_portfolio_update(update_market_data=True, upload_results=True, show_timing=False, force_update_minute=False):
+def run_portfolio_update(update_market_data=True, upload_results=True, show_timing=False, force_update=False, force_update_minute=False):
     start_time = time.perf_counter()
     mode_str = " (TEST MODE)" if not upload_results else ""
     
@@ -98,7 +100,7 @@ def run_portfolio_update(update_market_data=True, upload_results=True, show_timi
     portfolio_tracker = tracker.PortfolioTracker(df_trades)
     
     # Fetch and process history
-    df_history = get_portfolio_history(portfolio_tracker, update=update_market_data, show_timing=show_timing, force_update_minute=force_update_minute) 
+    df_history = get_portfolio_history(portfolio_tracker, update=update_market_data, show_timing=show_timing, force_update=force_update, force_update_minute=force_update_minute) 
 
     # Initialise analyzer
     pa = analyzer.PortfolioAnalyzer(df_history, df_trades, portfolio_tracker)
@@ -156,7 +158,7 @@ def run_portfolio_update(update_market_data=True, upload_results=True, show_timi
     }
 
     with Timer("Creating HTML report", enabled=show_timing):
-        _, latest_path = create_report(figs, df_alloc, df_trades)
+        _, latest_path = create_report(figs, df_alloc, df_trades, tracker_obj=portfolio_tracker)
         
     if upload_results:
         with Timer("Uploading to host", enabled=show_timing):
@@ -174,6 +176,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Portfolio Tracker Runner")
     parser.add_argument('--test', action='store_true', help='Run in test mode (no upload, show timing)')
     parser.add_argument('--no-update', action='store_true', help='Use cached market data (do not fetch new data)')
+    parser.add_argument('--force-update', action='store_true', help='Force update daily data and metadata even if already updated today')
     parser.add_argument('--force-minute', action='store_true', help='Force update minute data even if already updated today')
     args = parser.parse_args()
 
@@ -182,6 +185,6 @@ if __name__ == "__main__":
     update_data = not args.no_update
 
     if args.test:
-        run_portfolio_update(update_market_data=update_data, upload_results=False, show_timing=True, force_update_minute=args.force_minute)
+        run_portfolio_update(update_market_data=update_data, upload_results=False, show_timing=True, force_update=args.force_update, force_update_minute=args.force_minute)
     else:
-        run_portfolio_update(update_market_data=update_data, upload_results=True, show_timing=False, force_update_minute=args.force_minute)
+        run_portfolio_update(update_market_data=update_data, upload_results=True, show_timing=False, force_update=args.force_update, force_update_minute=args.force_minute)

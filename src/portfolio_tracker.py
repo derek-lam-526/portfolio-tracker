@@ -26,20 +26,41 @@ class PortfolioTracker:
         self.end_date = max(datetime.now(), df_dates.max())
         self.dividend_history = []
         
-    def fetch_market_data(self, update=True, show_timing=False, force_update_minute=False):
+    def fetch_market_data(self, update=True, show_timing=False, force_update=False, force_update_minute=False):
         
         collector = TimingCollector(enabled=show_timing)
         metadata_path = os.path.join(config.DATA_DIR, "portfolio_metadata.pkl")
         
         # Identify unique markets and currencies from trades
         unique_markets = self.trades['MARKET'].unique().tolist()
+        
+        # Also include destination markets from EXCHANGE actions
+        exchange_mask = self.trades['BUY/SELL'] == 'EXCHANGE'
+        if exchange_mask.any():
+            unique_markets += self.trades[exchange_mask]['SYMBOL'].unique().tolist()
+            unique_markets = list(set(unique_markets))
+
         required_currencies = [config.MARKET_REGISTRY[m]['currency'] for m in unique_markets if m in config.MARKET_REGISTRY]
+        
+        # Always include base and secondary currencies
         if config.BASE_CURRENCY not in required_currencies:
             required_currencies.append(config.BASE_CURRENCY)
-            
-        if not update:
-            print("⚠️  Update=False: Loading data from local cache...")
-
+        if hasattr(config, 'SECONDARY_CURRENCY') and config.SECONDARY_CURRENCY and config.SECONDARY_CURRENCY not in required_currencies:
+            required_currencies.append(config.SECONDARY_CURRENCY)
+        
+        required_currencies = list(set(required_currencies))
+        
+        # --- UPDATE SUPPRESSION LOGIC ---
+        # If metadata exists and was updated today, skip fetching new metadata unless forced
+        update_metadata = update
+        if update and not force_update and os.path.exists(metadata_path):
+            mtime = datetime.fromtimestamp(os.path.getmtime(metadata_path))
+            if mtime.date() == datetime.now().date():
+                print(f"ℹ️  Metadata already updated today ({mtime.strftime('%H:%M:%S')}). Skipping fresh metadata fetch...")
+                update_metadata = False
+        
+        # Pre-load metadata from cache if we are suppressing it, or if update=False
+        if not update_metadata or not update:
             if os.path.exists(metadata_path):
                 try:
                     with open(metadata_path, 'rb') as f:
@@ -49,8 +70,14 @@ class PortfolioTracker:
                         self.asset_info = meta.get("asset_info", {})
                 except Exception as e:
                     print(f"Error loading metadata: {e}")
+                    update_metadata = update # Force fetch if cache is corrupted
             else:
-                print(f"No metadata cache found.")
+                if not update:
+                    print(f"No metadata cache found.")
+                update_metadata = update
+            
+        if not update:
+            print("⚠️  Loading data from local cache...")
 
             for symbol in self.symbols:
                 market = self.trades[self.trades['SYMBOL'] == symbol]['MARKET'].iloc[0]
@@ -130,17 +157,18 @@ class PortfolioTracker:
                     return
 
                 # --- METADATA RETRIEVAL (DIVIDENDS, SPLITS, INFO) ---
-                t_start_meta = time.perf_counter()
-                divs = ticker.dividends
-                splits = ticker.splits
-                self.dividends[symbol] = divs.tz_localize(None) if divs.index.tz is not None else divs
-                self.splits[symbol] = splits.tz_localize(None) if splits.index.tz is not None else splits
-                
-                try:
-                    self.asset_info[symbol] = ticker.info
-                except Exception:
-                    self.asset_info[symbol] = {}
-                collector.record(f"Metadata Retrieval ({symbol})", time.perf_counter() - t_start_meta)
+                if update_metadata:
+                    t_start_meta = time.perf_counter()
+                    divs = ticker.dividends
+                    splits = ticker.splits
+                    self.dividends[symbol] = divs.tz_localize(None) if divs.index.tz is not None else divs
+                    self.splits[symbol] = splits.tz_localize(None) if splits.index.tz is not None else splits
+                    
+                    try:
+                        self.asset_info[symbol] = ticker.info
+                    except Exception:
+                        self.asset_info[symbol] = {}
+                    collector.record(f"Metadata Retrieval ({symbol})", time.perf_counter() - t_start_meta)
 
                 # --- MINUTE DATA ---
                 t_start_min = time.perf_counter()
@@ -149,7 +177,7 @@ class PortfolioTracker:
                 minute_path = os.path.join(min_market_dir, f'{symbol}.csv')
                 
                 should_update_minute = True
-                if os.path.exists(minute_path) and not force_update_minute:
+                if os.path.exists(minute_path) and not (force_update_minute or force_update):
                     mtime = datetime.fromtimestamp(os.path.getmtime(minute_path))
                     if mtime.date() == datetime.now().date():
                         should_update_minute = False
@@ -173,8 +201,8 @@ class PortfolioTracker:
                             combined_min.to_csv(minute_path)
                         else:
                             new_min.to_csv(minute_path)
-                
-                collector.record(f"Minute Data Processing ({symbol})", time.perf_counter() - t_start_min)
+                    
+                    collector.record(f"Minute Data Processing ({symbol})", time.perf_counter() - t_start_min)
 
             except Exception as e:
                 print(f"Error processing {symbol}: {e}")
@@ -183,17 +211,19 @@ class PortfolioTracker:
             executor.map(process_item, all_fetch_items)
 
         # --- Save metadata to cache --- 
-        try: 
-            with open(metadata_path, "wb") as f:
-                pickle.dump({
-                    "dividends": self.dividends,
-                    "splits": self.splits,
-                    "asset_info": self.asset_info
-                }, f)
-            print("✅ Market data and metadata updated successfully.")
-            collector.print_summary()
-        except Exception as e:
-            print(f"Error saving metadata: {e}")
+        if update_metadata:
+            try: 
+                with open(metadata_path, "wb") as f:
+                    pickle.dump({
+                        "dividends": self.dividends,
+                        "splits": self.splits,
+                        "asset_info": self.asset_info
+                    }, f)
+                print("✅ Market data and metadata updated successfully.")
+            except Exception as e:
+                print(f"Error saving metadata: {e}")
+        
+        collector.print_summary()
             
     def process_portfolio(self):
         # 1. Setup Time Index
@@ -206,7 +236,22 @@ class PortfolioTracker:
         
         # 3. Align Market Data, Splits, Dividends, and FX
         unique_markets = trades['MARKET'].unique().tolist()
+        
+        # Also include destination markets from EXCHANGE actions
+        exchange_mask = trades['BUY/SELL'] == 'EXCHANGE'
+        if exchange_mask.any():
+            unique_markets += trades[exchange_mask]['SYMBOL'].unique().tolist()
+            unique_markets = list(set(unique_markets))
+
         required_currencies = list(set([config.MARKET_REGISTRY[m]['currency'] for m in unique_markets if m in config.MARKET_REGISTRY]))
+        
+        # Always include base and secondary currencies
+        if config.BASE_CURRENCY not in required_currencies:
+            required_currencies.append(config.BASE_CURRENCY)
+        if hasattr(config, 'SECONDARY_CURRENCY') and config.SECONDARY_CURRENCY and config.SECONDARY_CURRENCY not in required_currencies:
+            required_currencies.append(config.SECONDARY_CURRENCY)
+        
+        required_currencies = list(set(required_currencies))
         
         price_df = pd.DataFrame(1.0, index=full_idx, columns=self.symbols)
         split_df = pd.DataFrame(1.0, index=full_idx, columns=self.symbols)

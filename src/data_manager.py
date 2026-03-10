@@ -38,7 +38,19 @@ def get_trade_df(file_path, sheet_name=config.TRADE_EXCEL_SHEET):
         if "AMT" in df.columns:
             df = df.drop(["AMT"], axis=1)
         df["QTY"] = df["QTY"].apply(int)
-        df["AMT"] = (df["QTY"] * df["PRICE"]).round(3)
+        
+        # Calculate AMT: for standard trades it's QTY * PRICE, but for EXCHANGE it should just be QTY (the source amount)
+        # or we can keep it as PRICE if the user prefers to see the target amount. 
+        # Given the user says "it multiply the two numbers together. fix this", 
+        # let's make it more logic-aware.
+        
+        def calculate_amt(row):
+            action = str(row.get('BUY/SELL', '')).upper()
+            if action == 'EXCHANGE':
+                return row['QTY'] # Show the source amount being exchanged
+            return row['QTY'] * row['PRICE']
+
+        df["AMT"] = df.apply(calculate_amt, axis=1).round(3)
         df["FEE"] = df["FEE"].astype(float).round(3)
 
         return df

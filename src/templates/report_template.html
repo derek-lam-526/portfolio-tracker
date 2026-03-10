@@ -347,7 +347,7 @@
         <div class="kpi-row">
             <div class="kpi-card">
                 <div class="kpi-label">Total Portfolio Value (Base)</div>
-                <div class="kpi-value">{{ summary.current_base_currency }} {{ summary.current_equity }}</div>
+                <div class="kpi-value" style="font-size: 24px;">{{ summary.current_equity_html | safe }}</div>
             </div>
             <div class="kpi-card" style="border-top-color: var(--positive);">
                 <div class="kpi-label">Total Return</div>
@@ -395,15 +395,13 @@
                                     <span class="tooltip-text">Current liquidation value of all open positions in
                                         {{ summary.current_base_currency }}.</span>
                                 </div>
-                                <div class="data-val">{{ summary.current_base_currency }} {{
-                                    summary.current_market_value }}</div>
+                                <div class="data-val">{{ summary.current_market_value_html | safe }}</div>
                             </div>
                             <div class="data-item">
                                 <div class="data-label data-label-tooltip">Cash Reserve
                                     <span class="tooltip-text">Uninvested cash available in the portfolio.</span>
                                 </div>
-                                <div class="data-val">{{ summary.current_base_currency }} {{ summary.current_cash }}
-                                </div>
+                                <div class="data-val">{{ summary.current_cash_html | safe }}</div>
                             </div>
                             <div class="data-item">
                                 <div class="data-label data-label-tooltip">Nominal Return (%)
