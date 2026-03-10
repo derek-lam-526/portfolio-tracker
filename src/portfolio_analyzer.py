@@ -220,8 +220,12 @@ class PortfolioAnalyzer:
         var_95_dollar = np.percentile(df['Daily_PnL'], 5) if len(df) > 10 else np.nan
         
         total_return = (df['Total_Equity'].iloc[-1] / df['Invested_Capital'].iloc[-1]) - 1 if len(df) > 0 else 0
-        drawdowns = (df['Total_Equity'] / df['Total_Equity'].cummax()) - 1
-        max_drawdown = drawdowns.min() if len(df) > 0 else 0
+        
+        # Calculate Max Drawdown based on time-weighted returns (consistent with plot)
+        cum_returns = 1 + df['Cumulative_Return']
+        running_max = cum_returns.cummax()
+        drawdown_pct = (cum_returns / running_max) - 1
+        max_drawdown = drawdown_pct.min() if len(df) > 0 else 0
         
         # Advanced Stats
         daily_ret = df['Daily_Return'].dropna()
@@ -235,7 +239,7 @@ class PortfolioAnalyzer:
         
         # Recovery Analysis
         ttrs = []
-        is_dd = df['Total_Equity'] < df['Total_Equity'].cummax()
+        is_dd = cum_returns < running_max
         dd_start = None
         for i, val in enumerate(is_dd):
             if val:
