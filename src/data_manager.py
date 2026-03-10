@@ -23,20 +23,19 @@ def get_trade_df(file_path, sheet_name=config.TRADE_EXCEL_SHEET):
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
             df = pd.read_excel(file_path, sheet_name=sheet_name)
-        if "CHECK" in df.columns:
-            df = df.drop(["CHECK"], axis = 1)
-        
         df.columns = df.columns.str.upper().str.strip()
+
+        expected_columns = ["DATE", "MARKET", "SYMBOL", "BUY/SELL", "QTY", "PRICE", "FEE"]
+        cols_to_keep = [col for col in expected_columns if col in df.columns]
+        df = df[cols_to_keep].copy()
 
         if "FEE" not in df.columns:
             df["FEE"] = 0.0
         else:
             df["FEE"] = df["FEE"].fillna(0.0)
 
-        df.dropna(inplace = True)
+        df.dropna(inplace=True)
         df["DATE"] = df["DATE"].dt.date
-        if "AMT" in df.columns:
-            df = df.drop(["AMT"], axis=1)
         df["QTY"] = df["QTY"].apply(int)
         
         # Calculate AMT: for standard trades it's QTY * PRICE, but for EXCHANGE it should just be QTY (the source amount)
