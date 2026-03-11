@@ -411,8 +411,8 @@ class PortfolioAnalyzer:
         
         last_holdings = {}
         for sym in portfolio_tracker.symbols:
-            buys = trades_df[(trades_df['SYMBOL'] == sym) & (trades_df['BUY/SELL'] == 'BUY')]['QTY'].sum()
-            sells = trades_df[(trades_df['SYMBOL'] == sym) & (trades_df['BUY/SELL'] == 'SELL')]['QTY'].sum()
+            buys = trades_df[(trades_df['SYMBOL'] == sym) & (trades_df['ACTION'] == 'BUY')]['QTY'].sum()
+            sells = trades_df[(trades_df['SYMBOL'] == sym) & (trades_df['ACTION'] == 'SELL')]['QTY'].sum()
             last_holdings[sym] = buys - sells
 
         current_holdings = {k: v for k, v in last_holdings.items() if v > 0}

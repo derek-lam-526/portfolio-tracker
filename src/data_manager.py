@@ -24,8 +24,12 @@ def get_trade_df(file_path, sheet_name=config.TRADE_EXCEL_SHEET):
             warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
             df = pd.read_excel(file_path, sheet_name=sheet_name)
         df.columns = df.columns.str.upper().str.strip()
+        
+        # Backward compatibility: Rename BUY/SELL to ACTION
+        if "BUY/SELL" in df.columns and "ACTION" not in df.columns:
+            df = df.rename(columns={"BUY/SELL": "ACTION"})
 
-        expected_columns = ["DATE", "MARKET", "SYMBOL", "BUY/SELL", "QTY", "PRICE", "FEE"]
+        expected_columns = ["DATE", "MARKET", "SYMBOL", "ACTION", "QTY", "PRICE", "FEE"]
         cols_to_keep = [col for col in expected_columns if col in df.columns]
         df = df[cols_to_keep].copy()
 
@@ -44,7 +48,7 @@ def get_trade_df(file_path, sheet_name=config.TRADE_EXCEL_SHEET):
         # let's make it more logic-aware.
         
         def calculate_amt(row):
-            action = str(row.get('BUY/SELL', '')).upper()
+            action = str(row.get('ACTION', '')).upper()
             if action == 'EXCHANGE':
                 return row['QTY'] # Show the source amount being exchanged
             return row['QTY'] * row['PRICE']
@@ -85,7 +89,12 @@ def load_trade_history(filepath):
         df['FEE'] = 0.0
         
     buysell_order = ['DEPOSIT', 'BUY', 'WITHDRAW', 'SELL', 'EXCHANGE']
-    df['BUY/SELL'] = pd.Categorical(df['BUY/SELL'].str.upper(), categories=buysell_order, ordered=True)
+    
+    # Backward compatibility for CSV
+    if 'BUY/SELL' in df.columns and 'ACTION' not in df.columns:
+        df = df.rename(columns={'BUY/SELL': 'ACTION'})
+        
+    df['ACTION'] = pd.Categorical(df['ACTION'].str.upper(), categories=buysell_order, ordered=True)
 
-    return df.sort_values(['DATE', 'BUY/SELL'])
+    return df.sort_values(['DATE', 'ACTION'])
 

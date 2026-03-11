@@ -40,14 +40,14 @@ In `src/config.py`, check these two important settings:
 ## 📊 How to Prepare Your Excel Input
 The Excel file is the "brain" of the tracker. It must have these **7 columns** (exact names matter):
 
-| DATE | MARKET | SYMBOL | BUY/SELL | QTY | PRICE | FEE |
+| DATE | MARKET | SYMBOL | ACTION | QTY | PRICE | FEE |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | 01/01/2024 | US | CASH | DEPOSIT | 1 | 10000 | 0 |
 | 05/01/2024 | US | NVDA | BUY | 10 | 480.50 | 1.50 |
 | 10/02/2024 | HK | 2800.HK | BUY | 500 | 20.30 | 18.00 |
 | 15/03/2024 | HK | US | EXCHANGE | 7800 | 1000 | 0 |
 
-### **Action Types (BUY/SELL Column)**
+### **Action Types (ACTION Column)**
 
 | Action | When to use it? | Column Details |
 | :--- | :--- | :--- |
@@ -61,7 +61,7 @@ The Excel file is the "brain" of the tracker. It must have these **7 columns** (
 If you exchange HKD to USD to buy US stocks, record it like this:
 *   **MARKET**: The source market (e.g., `HK`).
 *   **SYMBOL**: The destination market (e.g., `US`).
-*   **BUY/SELL**: `EXCHANGE`.
+*   **ACTION**: `EXCHANGE`.
 *   **QTY**: The amount of **source** currency leaving (e.g., 7800 HKD).
 *   **PRICE**: The amount of **destination** currency entering (e.g., 1000 USD).
 

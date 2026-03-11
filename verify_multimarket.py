@@ -27,11 +27,11 @@ def run_verification():
     t_future = (today + timedelta(days=60)).date()
     
     trades_data = [
-        {'DATE': t_minus_5, 'MARKET': 'HK', 'SYMBOL': 'CASH', 'BUY/SELL': 'DEPOSIT', 'QTY': 1, 'PRICE': 100000, 'FEE': 0},
-        {'DATE': t_minus_4, 'MARKET': 'HK', 'SYMBOL': 'US', 'BUY/SELL': 'EXCHANGE', 'QTY': 78000, 'PRICE': 10000, 'FEE': 0},
-        {'DATE': t_minus_3, 'MARKET': 'HK', 'SYMBOL': '2800.HK', 'BUY/SELL': 'BUY', 'QTY': 100, 'PRICE': 20.0, 'FEE': 50},
-        {'DATE': t_minus_3, 'MARKET': 'US', 'SYMBOL': 'SPY', 'BUY/SELL': 'BUY', 'QTY': 10, 'PRICE': 500.0, 'FEE': 5},
-        {'DATE': t_future, 'MARKET': 'US', 'SYMBOL': 'CASH', 'BUY/SELL': 'DEPOSIT', 'QTY': 1, 'PRICE': 5000, 'FEE': 0}
+        {'DATE': t_minus_5, 'MARKET': 'HK', 'SYMBOL': 'CASH', 'ACTION': 'DEPOSIT', 'QTY': 1, 'PRICE': 100000, 'FEE': 0},
+        {'DATE': t_minus_4, 'MARKET': 'HK', 'SYMBOL': 'US', 'ACTION': 'EXCHANGE', 'QTY': 78000, 'PRICE': 10000, 'FEE': 0},
+        {'DATE': t_minus_3, 'MARKET': 'HK', 'SYMBOL': '2800.HK', 'ACTION': 'BUY', 'QTY': 100, 'PRICE': 20.0, 'FEE': 50},
+        {'DATE': t_minus_3, 'MARKET': 'US', 'SYMBOL': 'SPY', 'ACTION': 'BUY', 'QTY': 10, 'PRICE': 500.0, 'FEE': 5},
+        {'DATE': t_future, 'MARKET': 'US', 'SYMBOL': 'CASH', 'ACTION': 'DEPOSIT', 'QTY': 1, 'PRICE': 5000, 'FEE': 0}
     ]
     df_trades = pd.DataFrame(trades_data)
     df_trades['DATE'] = pd.to_datetime(df_trades['DATE'])

@@ -64,7 +64,7 @@ def create_report(figs, df_alloc, df_trades, tracker_obj, output_dir=config.OUTP
     display_trades = display_trades.rename(columns={'AMT': f'AMT ({config.BASE_CURRENCY})', 'FEE': f'FEE ({config.BASE_CURRENCY})'})
 
     # 2. Format EXCHANGE actions to be more descriptive
-    exchange_mask = display_trades['BUY/SELL'] == 'EXCHANGE'
+    exchange_mask = display_trades['ACTION'] == 'EXCHANGE'
     if exchange_mask.any():
         display_trades.loc[exchange_mask, 'SYMBOL'] = display_trades.loc[exchange_mask].apply(
             lambda x: f"FX: {x['MARKET']} → {x['SYMBOL']}", axis=1

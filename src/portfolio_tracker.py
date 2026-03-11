@@ -15,7 +15,7 @@ class PortfolioTracker:
     def __init__(self, trades_df):
         self.trades = trades_df.copy()
         # Symbols are now identified by any ticker that is actually bought or sold as an asset
-        asset_trades = self.trades[self.trades['BUY/SELL'].isin(['BUY', 'SELL'])]
+        asset_trades = self.trades[self.trades['ACTION'].isin(['BUY', 'SELL'])]
         self.symbols = asset_trades['SYMBOL'].unique().tolist()
         self.market_data = {}
         self.dividends = {}
@@ -35,7 +35,7 @@ class PortfolioTracker:
         unique_markets = self.trades['MARKET'].unique().tolist()
         
         # Also include destination markets from EXCHANGE actions
-        exchange_mask = self.trades['BUY/SELL'] == 'EXCHANGE'
+        exchange_mask = self.trades['ACTION'] == 'EXCHANGE'
         if exchange_mask.any():
             unique_markets += self.trades[exchange_mask]['SYMBOL'].unique().tolist()
             unique_markets = list(set(unique_markets))
@@ -238,7 +238,7 @@ class PortfolioTracker:
         unique_markets = trades['MARKET'].unique().tolist()
         
         # Also include destination markets from EXCHANGE actions
-        exchange_mask = trades['BUY/SELL'] == 'EXCHANGE'
+        exchange_mask = trades['ACTION'] == 'EXCHANGE'
         if exchange_mask.any():
             unique_markets += trades[exchange_mask]['SYMBOL'].unique().tolist()
             unique_markets = list(set(unique_markets))
@@ -294,15 +294,15 @@ class PortfolioTracker:
         cum_split = split_df.cumprod()
         prev_cum_split = cum_split.shift(1, fill_value=1.0)
         
-        asset_trades_mask = trades['BUY/SELL'].isin(['BUY', 'SELL'])
+        asset_trades_mask = trades['ACTION'].isin(['BUY', 'SELL'])
         trade_qties = trades[asset_trades_mask].groupby(['DATE', 'SYMBOL'])['QTY'].sum().unstack().reindex(full_idx).fillna(0)
         
         # Calculate signed quantities for holdings
         signed_trade_qties = pd.DataFrame(0.0, index=full_idx, columns=self.symbols)
         for sym in self.symbols:
             sym_trades = trades[trades['SYMBOL'] == sym]
-            buy_mask = (sym_trades['BUY/SELL'] == 'BUY')
-            sell_mask = (sym_trades['BUY/SELL'] == 'SELL')
+            buy_mask = (sym_trades['ACTION'] == 'BUY')
+            sell_mask = (sym_trades['ACTION'] == 'SELL')
             
             sym_daily = pd.Series(0.0, index=full_idx)
             buys = sym_trades[buy_mask].groupby('DATE')['QTY'].sum()
@@ -334,7 +334,7 @@ class PortfolioTracker:
             curr = config.MARKET_REGISTRY.get(market, {}).get('currency', config.BASE_CURRENCY)
             amount = row['QTY'] * row['PRICE']
             fee = row['FEE']
-            if row['BUY/SELL'] == 'BUY':
+            if row['ACTION'] == 'BUY':
                 daily_cash_flow_per_curr[curr].loc[row['DATE']] -= (amount + fee)
             else:
                 daily_cash_flow_per_curr[curr].loc[row['DATE']] += (amount - fee)
@@ -354,8 +354,8 @@ class PortfolioTracker:
                 })
 
         # Cash Trades (Deposits/Withdrawals) & Exchange
-        for _, row in trades[trades['BUY/SELL'].isin(['DEPOSIT', 'WITHDRAW', 'EXCHANGE'])].iterrows():
-            if row['BUY/SELL'] == 'EXCHANGE':
+        for _, row in trades[trades['ACTION'].isin(['DEPOSIT', 'WITHDRAW', 'EXCHANGE'])].iterrows():
+            if row['ACTION'] == 'EXCHANGE':
                 # EXCHANGE logic: MARKET is source, SYMBOL is target market code
                 src_market = row['MARKET']
                 tgt_market = row['SYMBOL']
@@ -371,7 +371,7 @@ class PortfolioTracker:
                 amount = row['PRICE'] # For cash, PRICE is the total amount (compatibility)
                 fee = row['FEE']
                 
-                if row['BUY/SELL'] == 'DEPOSIT':
+                if row['ACTION'] == 'DEPOSIT':
                     flow = amount - fee
                     daily_cash_flow_per_curr[curr].loc[row['DATE']] += flow
                     invested_capital_base.loc[row['DATE']] += (amount * fx_df[curr].loc[row['DATE']])
@@ -414,8 +414,8 @@ class PortfolioTracker:
         """
         last_holdings = {}
         for sym in self.symbols:
-            buys = self.trades[(self.trades['SYMBOL'] == sym) & (self.trades['BUY/SELL'] == 'BUY')]['QTY'].sum()
-            sells = self.trades[(self.trades['SYMBOL'] == sym) & (self.trades['BUY/SELL'] == 'SELL')]['QTY'].sum()
+            buys = self.trades[(self.trades['SYMBOL'] == sym) & (self.trades['ACTION'] == 'BUY')]['QTY'].sum()
+            sells = self.trades[(self.trades['SYMBOL'] == sym) & (self.trades['ACTION'] == 'SELL')]['QTY'].sum()
             last_holdings[sym] = buys - sells
 
         current_holdings = [k for k, v in last_holdings.items() if v > 0]

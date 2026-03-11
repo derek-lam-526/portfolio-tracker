@@ -12,8 +12,8 @@ def match_trades(trades_df, portfolio_tracker=None):
     import config
     
     # Filter for BUY and SELL only
-    df = trades_df[trades_df['BUY/SELL'].isin(['BUY', 'SELL'])].copy()
-    df = df.sort_values(['DATE', 'BUY/SELL']) # Ensure chronological order
+    df = trades_df[trades_df['ACTION'].isin(['BUY', 'SELL'])].copy()
+    df = df.sort_values(['DATE', 'ACTION']) # Ensure chronological order
 
     completed_trades = []
     open_lots = {}
@@ -38,7 +38,7 @@ def match_trades(trades_df, portfolio_tracker=None):
         date = row['DATE']
         qty = row['QTY']
         price = row['PRICE']
-        buy_sell = row['BUY/SELL']
+        buy_sell = row['ACTION']
         market = row['MARKET']
         total_fee = row.get('FEE', 0)
         
