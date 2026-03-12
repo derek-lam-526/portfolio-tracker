@@ -108,10 +108,17 @@ class PortfolioAnalyzer:
                 # Cleanup index if it contains 'Ticker' or 'Date' from MultiIndex artifacts
                 df = df[~df.index.isin(['Ticker', 'Date'])]
                 df.index = pd.to_datetime(df.index)
-                self.benchmark_data[ticker_symbol] = df['Close'].reindex(self.history_df.index, method='pad').fillna(0)
-            else:
+                
+                # Check if local data covers the portfolio history
+                if df.index.min() <= self.history_df.index.min():
+                    self.benchmark_data[ticker_symbol] = df['Close'].reindex(self.history_df.index, method='pad').fillna(0)
+                else:
+                    print(f"Local data for {ticker_symbol} is incomplete (starts {df.index.min().date()} but need {self.history_df.index.min().date()}). Re-downloading...")
+                    os.remove(file_path) # Force re-download
+            
+            if ticker_symbol not in self.benchmark_data:
                 print(f"Downloading benchmark data for {ticker_symbol}...")
-                data = yf.download(ticker_symbol, start=self.tracker.start_date, end=datetime.now(), progress=False)
+                data = yf.download(ticker_symbol, start=self.history_df.index.min(), end=datetime.now(), progress=False)
                 if not data.empty:
                     # Flatten MultiIndex if present
                     if isinstance(data.columns, pd.MultiIndex):
@@ -149,6 +156,14 @@ class PortfolioAnalyzer:
         except Exception as e:
             print(f"Error fetching Risk Free Rate: {e}")
             df['Risk_Free_Rate_Daily'] = (1.04 ** (1/365)) - 1
+            
+        # Calculate Notional Benchmark PnL
+        for ticker in config.PLOT_BENCHMARK:
+            if ticker in self.benchmark_data:
+                bench_prices = self.benchmark_data[ticker]
+                bench_returns = bench_prices.pct_change().fillna(0)
+                # Notional PnL: Daily Return * Invested Capital
+                df[f'PnL_{ticker}'] = (bench_returns * df['Invested_Capital']).cumsum()
     
     def calculate_metrics(self):
         """Calculates performance and risk metrics. Returns a dictionary of results."""
@@ -311,6 +326,16 @@ class PortfolioAnalyzer:
         fig = go.Figure()
 
         fig.add_trace(go.Scatter(x=df.index, y=df['PnL'], mode='lines', name='Total PnL', line=dict(color='black', width=1), hovertemplate="<b>%{x}</b><br>PnL: " + config.BASE_CURRENCY + " %{y:,.2f}<extra></extra>"))
+        
+        # Benchmarks
+        bench_palette = [COLOR_BENCHMARK, COLOR_ACCENT, '#f59e0b', '#ec4899']
+        for i, ticker in enumerate(config.PLOT_BENCHMARK):
+            pnl_col = f'PnL_{ticker}'
+            if pnl_col in df.columns:
+                fig.add_trace(go.Scatter(x=df.index, y=df[pnl_col], mode='lines', name=ticker, 
+                                         line=dict(color=bench_palette[i % len(bench_palette)], width=1.5), 
+                                         opacity=0.8, hovertemplate=f"<b>{ticker}</b>: {config.BASE_CURRENCY} %{{y:,.2f}}<extra></extra>"))
+
         fig.add_trace(go.Scatter(x=df.index, y=df['PnL'].where(df['PnL'] >= 0, 0), mode='none', fill='tozeroy', fillcolor='rgba(0, 255, 0, 0.3)', name='Profit', hoverinfo='skip'))
         fig.add_trace(go.Scatter(x=df.index, y=df['PnL'].where(df['PnL'] < 0, 0), mode='none', fill='tozeroy', fillcolor='rgba(255, 0, 0, 0.3)', name='Loss', hoverinfo='skip'))
 
@@ -328,8 +353,30 @@ class PortfolioAnalyzer:
         fig.add_trace(go.Scatter(x=df.index, y=df['Invested_Capital'], mode='lines', name='Invested Capital', line=dict(color='#94a3b8', width=1.5, dash='dot'), hovertemplate="Invested: " + config.BASE_CURRENCY + " %{y:,.2f}<extra></extra>"), row=1, col=1)
         fig.add_trace(go.Scatter(x=df.index, y=df['Total_Equity'], mode='lines', name='Total Equity', line=dict(color=COLOR_PORT_MAIN, width=2.5), fill='tonexty', fillcolor='rgba(37, 99, 235, 0.08)', hovertemplate="Equity: " + config.BASE_CURRENCY + " %{y:,.2f}<extra></extra>"), row=1, col=1)
  
+        # Benchmarks in Wealth plot (Row 1)
+        bench_palette = [COLOR_BENCHMARK, COLOR_ACCENT, '#f59e0b', '#ec4899']
+        for i, ticker in enumerate(config.PLOT_BENCHMARK):
+            pnl_col = f'PnL_{ticker}'
+            if pnl_col in df.columns:
+                bench_value = df['Invested_Capital'] + df[pnl_col]
+                fig.add_trace(go.Scatter(x=df.index, y=bench_value, mode='lines', name=ticker, 
+                                         legendgroup=ticker,
+                                         line=dict(color=bench_palette[i % len(bench_palette)], width=1, dash='dot'), 
+                                         opacity=0.6, hovertemplate=f" {config.BASE_CURRENCY} %{{y:,.2f}}"), row=1, col=1)
+
         # PnL
         fig.add_trace(go.Scatter(x=df.index, y=df['PnL'], mode='lines', name='Net PnL', line=dict(color=COLOR_ACCENT, width=2), fill='tozeroy', fillcolor='rgba(139, 92, 246, 0.08)', hovertemplate="PnL: " + config.BASE_CURRENCY + " %{y:,.2f}<extra></extra>"), row=2, col=1)
+        
+        # Benchmarks in PnL plot
+        bench_palette = [COLOR_BENCHMARK, COLOR_ACCENT, '#f59e0b', '#ec4899']
+        for i, ticker in enumerate(config.PLOT_BENCHMARK):
+            pnl_col = f'PnL_{ticker}'
+            if pnl_col in df.columns:
+                fig.add_trace(go.Scatter(x=df.index, y=df[pnl_col], mode='lines', name=ticker, 
+                                         legendgroup=ticker, showlegend=False,
+                                         line=dict(color=bench_palette[i % len(bench_palette)], width=1), 
+                                         opacity=0.8, hovertemplate=f"{config.BASE_CURRENCY} %{{y:,.2f}}"), row=2, col=1)
+
         fig.add_hline(y=0, line_dash="solid", line_color="#cbd5e1", row=2, col=1)
         
         fig.update_layout(template="plotly_white", hovermode="x unified", height=700, showlegend=True,
