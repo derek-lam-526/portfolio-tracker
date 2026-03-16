@@ -81,6 +81,20 @@ def create_report(figs, df_alloc, df_trades, tracker_obj, output_dir=config.OUTP
         border=0, table_id='trades_table'
     )
     
+    # Process Dividend History
+    if tracker_obj.dividend_history:
+        import pandas as pd
+        df_dividends = pd.DataFrame(tracker_obj.dividend_history)
+        df_dividends = df_dividends.sort_values(by='Date', ascending=False)
+    else:
+        import pandas as pd
+        df_dividends = pd.DataFrame(columns=['Date', 'Symbol', 'Quantity', 'Net DPS', 'Currency', 'Total (Local)', f'Total ({config.BASE_CURRENCY})'])
+
+    dividends_table_html = df_dividends.to_html(
+        index=False, classes='display compact stripe hover order-column row-border', 
+        border=0, table_id='dividends_table'
+    )
+    
     # Extract dynamic FX rates from summary if available
     fx_rates = {}
     if summary_data.get("secondary_currency") and summary_data.get("secondary_fx_rate"):
@@ -115,7 +129,8 @@ def create_report(figs, df_alloc, df_trades, tracker_obj, output_dir=config.OUTP
         factor_analysis_html=factor_analysis_html,
         monte_carlo_html=monte_carlo_html,
         trade_analysis_html=trade_analysis_html,
-        trades_table_html=trades_table_html
+        trades_table_html=trades_table_html,
+        dividends_table_html=dividends_table_html
     )
     
     output_path = os.path.join(output_dir, f"portfolio_report_{current_date}.html")

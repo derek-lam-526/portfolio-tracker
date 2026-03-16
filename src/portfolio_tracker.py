@@ -26,7 +26,7 @@ class PortfolioTracker:
         self.end_date = max(datetime.now(), df_dates.max())
         self.dividend_history = []
         
-    def fetch_market_data(self, update=True, show_timing=False, force_update=False, force_update_minute=False):
+    def fetch_market_data(self, update=True, show_timing=False, force_update=False, force_update_minute=False, verbose=False):
         
         collector = TimingCollector(enabled=show_timing)
         metadata_path = os.path.join(config.DATA_DIR, "portfolio_metadata.pkl")
@@ -121,35 +121,84 @@ class PortfolioTracker:
                 os.makedirs(market_dir, exist_ok=True)
                 file_path = os.path.join(market_dir, f'{symbol}.csv')
                 existing_data = pd.DataFrame()
+                cache_readable = True
                 
                 if os.path.exists(file_path):
                     try:
                         df = pd.read_csv(file_path, index_col=0)
                         df.index = pd.to_datetime(df.index, errors='coerce')
                         existing_data = df[df.index.notna()].sort_index()
-                    except Exception: pass
+                    except Exception as e:
+                        print(f"  [!] {symbol}: Error reading cache: {e}. Skipping write-back to protect history.")
+                        cache_readable = False
                 
-                t_start_hist = time.perf_counter()
-                new_hist = ticker.history(start=start_str, auto_adjust=False)
-                collector.record(f"Daily Data Download ({symbol})", time.perf_counter() - t_start_hist)
+                today = datetime.now().strftime('%Y-%m-%d')
                 
-                # --- DAILY DATA PROCESSING/APPEND ---
+                def try_download(current_hist_state):
+                    t_start_hist = time.perf_counter()
+                    new_hist = ticker.history(start=start_str, auto_adjust=False)
+                    collector.record(f"Daily Data Download ({symbol})", time.perf_counter() - t_start_hist)
+                    
+                    if not new_hist.empty:
+                        new_hist.index = new_hist.index.tz_localize(None)
+                        # Drop rows where Close is NaN to prevent erasing valid cache data
+                        new_hist_clean = new_hist.dropna(subset=['Close'])
+                        
+                        if not current_hist_state.empty:
+                            combined = pd.concat([current_hist_state, new_hist_clean])
+                            combined = combined[~combined.index.duplicated(keep='last')]
+                            combined.sort_index(inplace=True)
+                            hist = combined
+                        else:
+                            hist = new_hist_clean
+                        
+                        if cache_readable:
+                            hist.to_csv(file_path)
+                        return hist, new_hist_clean
+                    return current_hist_state, new_hist
+
+                # Initial attempt
+                hist, new_hist = try_download(existing_data)
+                
+                # Check for staleness or empty download
+                latest_close = hist['Close'].dropna().iloc[-1] if not hist['Close'].dropna().empty else None
+                latest_date = hist['Close'].dropna().index[-1].strftime('%Y-%m-%d') if latest_close is not None else 'N/A'
+                
+                retried = False
+                # Retry if stale OR if the initial download was empty (transient failure)
+                if (latest_date != today or new_hist.empty):
+                    # If it's empty, we definitely want a retry. If it's stale, we try once more.
+                    reason = "Data stale" if not new_hist.empty else "No data received"
+                    print(f"  [RETRY] {symbol}: {reason} ({latest_date}). Retrying...")
+                    # Pass the updated state to the retry
+                    hist, new_hist = try_download(hist)
+                    latest_close = hist['Close'].dropna().iloc[-1] if not hist['Close'].dropna().empty else None
+                    latest_date = hist['Close'].dropna().index[-1].strftime('%Y-%m-%d') if latest_close is not None else 'N/A'
+                    retried = True
+
                 t_start_proc = time.perf_counter()
-                if not new_hist.empty:
-                    new_hist.index = new_hist.index.tz_localize(None)
-                    if not existing_data.empty:
-                        combined = pd.concat([existing_data, new_hist])
-                        combined = combined[~combined.index.duplicated(keep='last')]
-                        combined.sort_index(inplace=True)
-                        hist = combined
-                    else:
-                        hist = new_hist
-                    hist.to_csv(file_path)
+                if not hist.empty:
                     self.market_data[symbol] = hist
-                elif not existing_data.empty:
-                    self.market_data[symbol] = existing_data
+                    if latest_close is not None:
+                        status = "[OK]" if latest_date == today else "[~]"
+                        # Logic: always print if not OK/-, otherwise only if verbose
+                        should_print = verbose or status == "[~]"
+                        
+                        if should_print or (not verbose and retried):
+                            # Adjust status if it was cached but today
+                            final_status = status
+                            if status == "[OK]" and new_hist.empty:
+                                final_status = "[-]"
+                                if not verbose: should_print = False # Don't print [-] in non-verbose
+
+                            if should_print or retried:
+                                action_str = f"Downloaded {len(new_hist)} rows" if not new_hist.empty else "Using cache"
+                                retry_str = " (after retry)" if retried else ""
+                                print(f"  {final_status} {symbol}: {action_str}{retry_str}. Last: {latest_close:.4f} ({latest_date})")
+                    else:
+                        print(f"  [!] {symbol}: Data exists but latest Close is NaN!")
                 else:
-                    self.market_data[symbol] = pd.DataFrame()
+                    print(f"  [X] {symbol}: No data found.")
                 collector.record(f"Daily Data Processing ({symbol})", time.perf_counter() - t_start_proc)
 
                 # FX pairs don't need dividends/splits/minute-data
@@ -260,10 +309,10 @@ class PortfolioTracker:
 
         for sym in self.symbols:
             market = trades[trades['SYMBOL'] == sym]['MARKET'].iloc[0]
-            # Prices
+            # Prices - ensure we only propagate valid (non-NaN) historical prices
             if sym in self.market_data and not self.market_data[sym].empty:
                 df = self.market_data[sym]
-                price_df[sym] = df['Close'].reindex(full_idx, method='pad').fillna(0)
+                price_df[sym] = df['Close'].dropna().reindex(full_idx, method='pad').fillna(0)
             else:
                 price_df[sym] = 0.0
 
@@ -349,8 +398,16 @@ class PortfolioTracker:
             # Record Dividend History
             div_mask = div_income > 1e-6
             for date in div_mask.index[div_mask]:
+                local_amount = div_income.loc[date]
+                base_amount = local_amount * fx_df[curr].loc[date]
                 self.dividend_history.append({
-                    'Date': date, 'Symbol': sym, 'Amount': div_income.loc[date] # Amount is in local currency
+                    'Date': date.strftime('%Y-%m-%d'), 
+                    'Symbol': sym, 
+                    'Quantity': round(holdings_df[sym].loc[date], 4),
+                    'Net DPS': round(div_df[sym].loc[date], 4),
+                    'Currency': curr,
+                    'Total (Local)': round(local_amount, 2),
+                    f'Total ({config.BASE_CURRENCY})': round(base_amount, 2)
                 })
 
         # Cash Trades (Deposits/Withdrawals) & Exchange

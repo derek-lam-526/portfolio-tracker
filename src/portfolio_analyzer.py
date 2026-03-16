@@ -100,14 +100,25 @@ class PortfolioAnalyzer:
             file_path = os.path.join(market_dir, f"{ticker_symbol}.csv")
             
             if os.path.exists(file_path):
-                # Handle possible MultiIndex header from yfinance download
-                df = pd.read_csv(file_path, index_col=0, header=[0, 1] if '^' in ticker_symbol else 0)
+                # Single-ticker downloads are flattened, so header=0 (default) is correct
+                df = pd.read_csv(file_path, index_col=0)
+                
+                # If MultiIndex was somehow preserved in csv (unlikely with to_csv), flatten it
                 if isinstance(df.columns, pd.MultiIndex):
                     df.columns = df.columns.get_level_values(0)
                 
-                # Cleanup index if it contains 'Ticker' or 'Date' from MultiIndex artifacts
+                # Cleanup: If we read a yfinance MultiIndex CSV as single header, 
+                # the second/third header rows might be data rows "Ticker" or "Date"
                 df = df[~df.index.isin(['Ticker', 'Date'])]
-                df.index = pd.to_datetime(df.index)
+                
+                # Ensure index is datetime and valid
+                df.index = pd.to_datetime(df.index, errors='coerce')
+                df = df[df.index.notna()].sort_index()
+                
+                # Ensure columns are numeric (avoid 'str' and 'str' errors)
+                for col in df.columns:
+                    df[col] = pd.to_numeric(df[col], errors='coerce')
+                df = df.dropna(subset=['Close'])
                 
                 # Check if local data covers the portfolio history
                 if df.index.min() <= self.history_df.index.min():
@@ -464,20 +475,27 @@ class PortfolioAnalyzer:
 
         current_holdings = {k: v for k, v in last_holdings.items() if v > 0}
         current_values = {}
+        current_prices = {}
         for sym, qty in current_holdings.items():
             if sym in portfolio_tracker.market_data and not portfolio_tracker.market_data[sym].empty:
-                local_price = portfolio_tracker.market_data[sym].iloc[-1]['Close']
-                
-                # Normalize to BASE_CURRENCY
-                market = trades_df[trades_df['SYMBOL'] == sym]['MARKET'].iloc[0]
-                currency = config.MARKET_REGISTRY.get(market, {}).get('currency', config.BASE_CURRENCY)
-                fx_rate = 1.0
-                if currency != config.BASE_CURRENCY:
-                    pair = f"{currency}{config.BASE_CURRENCY}=X"
-                    if pair in portfolio_tracker.market_data and not portfolio_tracker.market_data[pair].empty:
-                        fx_rate = portfolio_tracker.market_data[pair].iloc[-1]['Close']
-                
-                current_values[sym] = qty * local_price * fx_rate
+                # Use the last valid (non-NaN) price
+                valid_prices = portfolio_tracker.market_data[sym]['Close'].dropna()
+                if not valid_prices.empty:
+                    local_price = valid_prices.iloc[-1]
+                    current_prices[sym] = local_price
+                    
+                    # Normalize to BASE_CURRENCY
+                    market = trades_df[trades_df['SYMBOL'] == sym]['MARKET'].iloc[0]
+                    currency = config.MARKET_REGISTRY.get(market, {}).get('currency', config.BASE_CURRENCY)
+                    fx_rate = 1.0
+                    if currency != config.BASE_CURRENCY:
+                        pair = f"{currency}{config.BASE_CURRENCY}=X"
+                        if pair in portfolio_tracker.market_data and not portfolio_tracker.market_data[pair].empty:
+                            valid_fx = portfolio_tracker.market_data[pair]['Close'].dropna()
+                            if not valid_fx.empty:
+                                fx_rate = valid_fx.iloc[-1]
+                    
+                    current_values[sym] = qty * local_price * fx_rate
 
         if history_df['Cash'].iloc[-1] > 0:
             current_values['Liquid Cash'] = history_df['Cash'].iloc[-1]
@@ -514,8 +532,16 @@ class PortfolioAnalyzer:
         total_val = sum(current_values.values())
         data_rows = []
         for sym, val in current_values.items():
-            data_rows.append({'Symbol': sym, 'Category': asset_categories.get(sym, 'Other'), 'Sector': asset_sectors.get(sym, 'Other'),
-                              'Value': val, 'Allocation (%)': (val / total_val) * 100})
+            row = {
+                'Symbol': sym, 
+                'Category': asset_categories.get(sym, 'Other'), 
+                'Sector': asset_sectors.get(sym, 'Other'),
+                'Qty': current_holdings.get(sym, np.nan),
+                'Price': current_prices.get(sym, np.nan),
+                'Value': val, 
+                'Allocation (%)': (val / total_val) * 100
+            }
+            data_rows.append(row)
         df_alloc = pd.DataFrame(data_rows).sort_values(by='Value', ascending=False).reset_index(drop=True)
 
         # Visualization

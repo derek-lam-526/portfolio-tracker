@@ -1,3 +1,4 @@
+from logging import debug
 import time
 from datetime import datetime
 import os
@@ -33,9 +34,9 @@ def get_trade_history() -> pd.DataFrame:
     trades_df = data_manager.load_trade_history(filepath=config.TRADE_HISTORY_FILE)
     return trades_df
 
-def get_portfolio_history(portfolio_tracker, update=True, show_timing=False, force_update=False, force_update_minute=False) -> pd.DataFrame:
+def get_portfolio_history(portfolio_tracker, update=True, show_timing=False, force_update=False, force_update_minute=False, verbose=False) -> pd.DataFrame:
     with Timer(f"Fetching market data{' (no update)' if not update else ''}", enabled=show_timing):
-        portfolio_tracker.fetch_market_data(update=update, show_timing=show_timing, force_update=force_update, force_update_minute=force_update_minute)
+        portfolio_tracker.fetch_market_data(update=update, show_timing=show_timing, force_update=force_update, force_update_minute=force_update_minute, verbose=verbose)
     
     with Timer("Processing portfolio history", enabled=show_timing):
         history_df = portfolio_tracker.process_portfolio()
@@ -85,7 +86,7 @@ def upload_to_host(file_path):
     except Exception as e:
         print(f"❌ Upload failed: {str(e)}")
 
-def run_portfolio_update(update_market_data=True, upload_results=True, show_timing=False, force_update=False, force_update_minute=False):
+def run_portfolio_update(update_market_data=True, upload_results=True, show_timing=False, force_update=False, force_update_minute=False, verbose=False):
     start_time = time.perf_counter()
     mode_str = " (TEST MODE)" if not upload_results else ""
     
@@ -100,7 +101,7 @@ def run_portfolio_update(update_market_data=True, upload_results=True, show_timi
     portfolio_tracker = tracker.PortfolioTracker(df_trades)
     
     # Fetch and process history
-    df_history = get_portfolio_history(portfolio_tracker, update=update_market_data, show_timing=show_timing, force_update=force_update, force_update_minute=force_update_minute) 
+    df_history = get_portfolio_history(portfolio_tracker, update=update_market_data, show_timing=show_timing, force_update=force_update, force_update_minute=force_update_minute, verbose=verbose) 
 
     # Initialise analyzer
     pa = analyzer.PortfolioAnalyzer(df_history, df_trades, portfolio_tracker)
@@ -178,6 +179,7 @@ if __name__ == "__main__":
     parser.add_argument('--no-update', action='store_true', help='Use cached market data (do not fetch new data)')
     parser.add_argument('--force-update', action='store_true', help='Force update daily data and metadata even if already updated today')
     parser.add_argument('--force-minute', action='store_true', help='Force update minute data even if already updated today')
+    parser.add_argument('--verbose', action='store_true', help='Show detailed download status for each ticker')
     args = parser.parse_args()
 
     # Determine update flag
@@ -185,6 +187,6 @@ if __name__ == "__main__":
     update_data = not args.no_update
 
     if args.test:
-        run_portfolio_update(update_market_data=update_data, upload_results=False, show_timing=True, force_update=args.force_update, force_update_minute=args.force_minute)
+        run_portfolio_update(update_market_data=update_data, upload_results=False, show_timing=True, force_update=args.force_update, force_update_minute=args.force_minute, verbose=args.verbose)
     else:
-        run_portfolio_update(update_market_data=update_data, upload_results=True, show_timing=False, force_update=args.force_update, force_update_minute=args.force_minute)
+        run_portfolio_update(update_market_data=update_data, upload_results=True, show_timing=False, force_update=args.force_update, force_update_minute=args.force_minute, verbose=args.verbose)

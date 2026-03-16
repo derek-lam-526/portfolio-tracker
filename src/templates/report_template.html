@@ -380,6 +380,7 @@
             <button class="tab-button" onclick="openTab(event, 'Trades_Perf')">Trade Performance</button>
             <button class="tab-button" onclick="openTab(event, 'Allocation')">Current Allocation</button>
             <button class="tab-button" onclick="openTab(event, 'Trades')">Trade History</button>
+            <button class="tab-button" onclick="openTab(event, 'Dividends')">Dividend History</button>
 
         </div>
 
@@ -814,6 +815,14 @@
             </div>
         </div>
 
+        <div id="Dividends" class="tab-content">
+            <div class="content-card">
+                <h3>Dividend History</h3>
+                <div class="table-responsive">
+                    {{ dividends_table_html | safe }}
+                </div>
+            </div>
+        </div>
 
     </div>
 
@@ -829,6 +838,13 @@
             }
             if ($('#trades_table').length) {
                 $('#trades_table').DataTable({
+                    responsive: true,
+                    pageLength: 25,
+                    order: [[0, "desc"]]
+                });
+            }
+            if ($('#dividends_table').length) {
+                $('#dividends_table').DataTable({
                     responsive: true,
                     pageLength: 25,
                     order: [[0, "desc"]]
