@@ -120,11 +120,23 @@ class PortfolioAnalyzer:
                     df[col] = pd.to_numeric(df[col], errors='coerce')
                 df = df.dropna(subset=['Close'])
                 
-                # Check if local data covers the portfolio history
-                if df.index.min() <= self.history_df.index.min():
+                # Check if local data covers the portfolio history window.
+                # Require start coverage and near-end freshness to avoid stale flat tails.
+                required_start = self.history_df.index.min()
+                required_end = self.history_df.index.max()
+                end_freshness_buffer = pd.Timedelta(days=7)
+
+                has_start_coverage = df.index.min() <= required_start
+                has_end_coverage = df.index.max() >= (required_end - end_freshness_buffer)
+
+                if has_start_coverage and has_end_coverage:
                     self.benchmark_data[ticker_symbol] = df['Close'].reindex(self.history_df.index, method='pad').fillna(0)
                 else:
-                    print(f"Local data for {ticker_symbol} is incomplete (starts {df.index.min().date()} but need {self.history_df.index.min().date()}). Re-downloading...")
+                    print(
+                        f"Local data for {ticker_symbol} is incomplete "
+                        f"(have {df.index.min().date()} to {df.index.max().date()}, "
+                        f"need {required_start.date()} to ~{required_end.date()}). Re-downloading..."
+                    )
                     os.remove(file_path) # Force re-download
             
             if ticker_symbol not in self.benchmark_data:
