@@ -87,6 +87,19 @@ class PortfolioAnalyzer:
         self._fetch_benchmark_data(benchmark_tickers)
         self._prepare_data()
 
+    def _align_benchmark_close(self, close_series):
+        """Align close prices to portfolio dates without extending past last real close."""
+        if close_series is None or close_series.empty:
+            return pd.Series(index=self.history_df.index, dtype=float)
+
+        clean = close_series.dropna().sort_index()
+        if clean.empty:
+            return pd.Series(index=self.history_df.index, dtype=float)
+
+        aligned = clean.reindex(self.history_df.index).ffill()
+        aligned.loc[self.history_df.index > clean.index.max()] = np.nan
+        return aligned
+
     def _fetch_benchmark_data(self, tickers):
         for ticker_symbol in tickers:
             # Find which market this benchmark belongs to for storage path
@@ -124,13 +137,14 @@ class PortfolioAnalyzer:
                 # Require start coverage and near-end freshness to avoid stale flat tails.
                 required_start = self.history_df.index.min()
                 required_end = self.history_df.index.max()
-                end_freshness_buffer = pd.Timedelta(days=7)
+                # Keep tolerance tight to avoid multi-day stale flatlines.
+                end_freshness_buffer = pd.Timedelta(days=2)
 
                 has_start_coverage = df.index.min() <= required_start
                 has_end_coverage = df.index.max() >= (required_end - end_freshness_buffer)
 
                 if has_start_coverage and has_end_coverage:
-                    self.benchmark_data[ticker_symbol] = df['Close'].reindex(self.history_df.index, method='pad').fillna(0)
+                    self.benchmark_data[ticker_symbol] = self._align_benchmark_close(df['Close'])
                 else:
                     print(
                         f"Local data for {ticker_symbol} is incomplete "
@@ -149,7 +163,7 @@ class PortfolioAnalyzer:
                     
                     os.makedirs(market_dir, exist_ok=True)
                     data.to_csv(file_path)
-                    self.benchmark_data[ticker_symbol] = data['Close'].reindex(self.history_df.index, method='pad').fillna(0)
+                    self.benchmark_data[ticker_symbol] = self._align_benchmark_close(data['Close'])
 
     def _prepare_data(self):
         """Ensures fundamental return and PnL columns are present in history_df."""
@@ -184,9 +198,13 @@ class PortfolioAnalyzer:
         for ticker in config.PLOT_BENCHMARK:
             if ticker in self.benchmark_data:
                 bench_prices = self.benchmark_data[ticker]
-                bench_returns = bench_prices.pct_change().fillna(0)
+                bench_returns = bench_prices.pct_change(fill_method=None)
                 # Notional PnL: Daily Return * Invested Capital
-                df[f'PnL_{ticker}'] = (bench_returns * df['Invested_Capital']).cumsum()
+                pnl_series = (bench_returns.fillna(0) * df['Invested_Capital']).cumsum()
+                last_valid_bench = bench_prices.last_valid_index()
+                if last_valid_bench is not None:
+                    pnl_series = pnl_series.where(df.index <= last_valid_bench)
+                df[f'PnL_{ticker}'] = pnl_series
     
     def calculate_metrics(self):
         """Calculates performance and risk metrics. Returns a dictionary of results."""
